@@ -739,6 +739,7 @@ export default function DisciplinaTotalApp() {
   const [pomodoroLinkNameDraft, setPomodoroLinkNameDraft] = useState('');
   const [pomodoroUrlDraft, setPomodoroUrlDraft] = useState('');
   const [historyDate, setHistoryDate] = useState(todayISO());
+  const [selectedRoutineDate, setSelectedRoutineDate] = useState(todayISO());
   const fileRef = useRef(null);
   const bgUploadRef = useRef(null);
   const toast = useToast();
@@ -798,8 +799,10 @@ export default function DisciplinaTotalApp() {
 
   const todayTasksRaw = state.tasks.filter((t) => t.date === todayISO());
   const todayTasks = sortTasksByTime(todayTasksRaw);
+  const routineTasksRaw = state.tasks.filter((t) => t.date === selectedRoutineDate);
+  const routineTasks = sortTasksByTime(routineTasksRaw);
   const filteredTasks = sortTasksByTime(
-    todayTasksRaw.filter((task) =>
+    routineTasksRaw.filter((task) =>
       task.title.toLowerCase().includes(search.toLowerCase()) ||
       (task.description || '').toLowerCase().includes(search.toLowerCase())
     )
@@ -833,6 +836,7 @@ const daysAboveGoal = weekSeries.filter((item) => item.disciplina >= state.setti
 const bestWeekDay = [...weekSeries].sort((a, b) => b.disciplina - a.disciplina)[0] || null;
 const worstWeekDay = [...weekSeries].sort((a, b) => a.disciplina - b.disciplina)[0] || null;
 const nextPendingTask = todayTasks.find((task) => task.status !== 'done') || null;
+const selectedRoutineDateLabel = new Intl.DateTimeFormat(locale, { dateStyle: 'full' }).format(new Date(selectedRoutineDate + 'T00:00:00'));
 const weeklyTaskFlow = weekDates.map((date) => {
   const tasksForDay = sortTasksByTime(state.tasks.filter((task) => task.date === date));
   const doneForDay = tasksForDay.filter((task) => task.status === 'done').length;
@@ -920,7 +924,7 @@ function updateState(updater) { setState((prev) => updater(prev)); }
   }
 
   function openNewTask() {
-    setEditingTask({ id: uid(), title: '', description: '', category: 'pessoal', priority: 'média', time: '', status: 'pending', date: todayISO(), color: priorityColor('média'), subtasks: [] });
+    setEditingTask({ id: uid(), title: '', description: '', category: 'pessoal', priority: 'média', time: '', status: 'pending', date: selectedRoutineDate, color: priorityColor('média'), subtasks: [] });
     setShowTaskModal(true);
   }
 
@@ -1274,13 +1278,26 @@ if (page === 'dashboard') {
       return (
         <div className="stack large-gap">
           <section className="glass section-card">
-            <SectionHeader title={locale === 'EN-US' ? 'Your operational board' : 'Seu painel operacional do dia'} subtitle={locale === 'EN-US' ? 'Filter, prioritize, execute and track.' : 'Filtre, priorize, execute e registre.'} action={<button className="primary-btn" onClick={openNewTask}><Plus size={16} /> {copy.newTask}</button>} />
+            <SectionHeader
+              title={locale === 'EN-US' ? 'Your operational board' : 'Seu painel operacional do dia'}
+              subtitle={selectedRoutineDateLabel}
+              action={<button className="primary-btn" onClick={openNewTask}><Plus size={16} /> {copy.newTask}</button>}
+            />
             <div className="toolbar-row">
               <div className="search-box"><Search size={16} /><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder={locale === 'EN-US' ? 'Search task' : 'Buscar tarefa'} /></div>
+              <input
+                type="date"
+                value={selectedRoutineDate}
+                onChange={(e) => setSelectedRoutineDate(e.target.value)}
+                aria-label={locale === 'EN-US' ? 'Routine date' : 'Data da rotina'}
+              />
+              <button className="ghost-btn" onClick={() => setSelectedRoutineDate(todayISO())}>
+                {locale === 'EN-US' ? 'Today' : 'Hoje'}
+              </button>
             </div>
           </section>
           <div className="task-grid">
-            {filteredTasks.map((task) => (
+            {filteredTasks.length ? filteredTasks.map((task) => (
               <motion.div key={task.id} layout className="glass task-card-premium">
                 <div className="task-card-body">
                   <button className="task-check" onClick={() => setTaskStatus(task.id, task.status === 'done' ? 'pending' : 'done')}>
@@ -1310,7 +1327,12 @@ if (page === 'dashboard') {
                   </div>
                 </div>
               </motion.div>
-            ))}
+            )) : (
+              <div className="empty-state-card">
+                <div className="row-title">{locale === 'EN-US' ? 'No routines on this day.' : 'Nenhuma rotina neste dia.'}</div>
+                <div className="row-sub">{locale === 'EN-US' ? 'Choose another date or create a new task for the selected day.' : 'Escolha outra data ou crie uma nova tarefa para o dia selecionado.'}</div>
+              </div>
+            )}
           </div>
         </div>
       );
@@ -1686,7 +1708,7 @@ if (page === 'stats') {
         </main>
       </div>
 
-      <TaskModal open={showTaskModal} locale={locale} onClose={() => { setShowTaskModal(false); setEditingTask(null); }} task={editingTask} onSave={saveTask} categories={state.settings.categories} />
+      <TaskModal open={showTaskModal} locale={locale} onClose={() => { setShowTaskModal(false); setEditingTask(null); }} task={editingTask} onSave={saveTask} categories={state.settings.categories} selectedDate={selectedRoutineDate} />
       <HabitModal open={showHabitModal} locale={locale} onClose={() => { setShowHabitModal(false); setEditingHabit(null); }} habit={editingHabit} onSave={saveHabit} categories={state.settings.categories} />
       <ResetConfirmModal
         open={showResetModal}
@@ -1792,10 +1814,10 @@ function NumberField({ label, value, onCommit, min = 0, placeholder = '' }) {
     </Field>
   );
 }
-function TaskModal({ open, onClose, task, onSave, categories, locale = 'PT-BR' }) {
+function TaskModal({ open, onClose, task, onSave, categories, selectedDate = todayISO(), locale = 'PT-BR' }) {
   const copy = getCopy(locale);
   const [draft, setDraft] = useState(null);
-  useEffect(() => setDraft(task ? { ...task, subtasks: task.subtasks?.length ? task.subtasks : [{ id: uid(), title: '', done: false }] } : null), [task]);
+  useEffect(() => setDraft(task ? { ...task, date: task.date || selectedDate, subtasks: task.subtasks?.length ? task.subtasks : [{ id: uid(), title: '', done: false }] } : null), [task, selectedDate]);
   if (!open || !draft) return null;
   function updateSubtask(index, value) { setDraft((prev) => ({ ...prev, subtasks: prev.subtasks.map((s, i) => (i === index ? { ...s, title: value } : s)) })); }
   function addSubtask(afterIndex = null) {
@@ -1828,6 +1850,9 @@ function TaskModal({ open, onClose, task, onSave, categories, locale = 'PT-BR' }
             <select value={draft.priority || 'média'} onChange={(e) => setDraft({ ...draft, priority: e.target.value, color: priorityColor(e.target.value) })}>
               <option value="baixa">{copy.low}</option><option value="média">{copy.medium}</option><option value="alta">{copy.high}</option><option value="crítica">{copy.critical}</option>
             </select>
+          </Field>
+          <Field label={locale === 'EN-US' ? 'Day' : 'Dia'}>
+            <input type="date" value={draft.date || selectedDate} onChange={(e) => setDraft({ ...draft, date: e.target.value })} />
           </Field>
           <Field label={copy.time}><input value={draft.time || ''} onChange={(e) => setDraft({ ...draft, time: e.target.value })} placeholder="08:00" /></Field>
           <div className="field helper-card"><span>{copy.discipline}</span><small>{copy.disciplineHelp}</small></div>
