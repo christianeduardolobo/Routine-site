@@ -659,6 +659,59 @@ select option { background: #111827; color: #f8fafc; }
   }
 }
 
+
+.modal-backdrop,
+.modal-card {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255,255,255,0.22) transparent;
+  scrollbar-gutter: stable;
+}
+
+.discipline-app.light .modal-backdrop,
+.discipline-app.light .modal-card {
+  scrollbar-color: rgba(15,23,42,0.28) transparent;
+}
+
+.modal-backdrop::-webkit-scrollbar,
+.modal-card::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.modal-backdrop::-webkit-scrollbar-track,
+.modal-card::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.modal-backdrop::-webkit-scrollbar-thumb,
+.modal-card::-webkit-scrollbar-thumb {
+  background: rgba(255,255,255,0.18);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+.modal-backdrop::-webkit-scrollbar-thumb:hover,
+.modal-card::-webkit-scrollbar-thumb:hover {
+  background: rgba(255,255,255,0.28);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+.discipline-app.light .modal-backdrop::-webkit-scrollbar-thumb,
+.discipline-app.light .modal-card::-webkit-scrollbar-thumb {
+  background: rgba(15,23,42,0.18);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+.discipline-app.light .modal-backdrop::-webkit-scrollbar-thumb:hover,
+.discipline-app.light .modal-card::-webkit-scrollbar-thumb:hover {
+  background: rgba(15,23,42,0.28);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
 /* ── TOAST ──────────────────────────────────────────────────────── */
 .toast-layer { position: fixed; right: 16px; top: 16px; z-index: 60; display: flex; flex-direction: column; gap: 10px; width: min(340px, calc(100vw - 32px)); }
 .toast-card { border-radius: 18px; border: 1px solid var(--line); background: rgba(9,13,23,0.92); padding: 14px; color: white; box-shadow: var(--shadow); }

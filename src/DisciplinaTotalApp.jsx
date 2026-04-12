@@ -54,8 +54,81 @@ function getTaskStatusForDate(task, date) {
   return task.status || 'pending';
 }
 
+function getEffectiveSubtasksForDate(task, date) {
+  const subtasks = Array.isArray(task.subtasks) ? task.subtasks : [];
+  const hasWeekdays = Array.isArray(task.weekdays) && task.weekdays.length > 0;
+
+  if (!hasWeekdays) return subtasks;
+
+  const dayMap = task.subtaskStatusByDate?.[date] || {};
+  return subtasks.map((subtask) => ({
+    ...subtask,
+    done: Boolean(dayMap[subtask.id]),
+  }));
+}
+
+function normalizeRecurringSubtaskStatusByDate(subtaskStatusByDate = {}, subtasks = [], statusByDate = {}) {
+  const validIds = new Set(subtasks.map((subtask) => subtask.id));
+  const normalized = {};
+
+  Object.entries(subtaskStatusByDate || {}).forEach(([date, map]) => {
+    const nextMap = {};
+    Object.entries(map || {}).forEach(([subtaskId, done]) => {
+      if (validIds.has(subtaskId) && done) nextMap[subtaskId] = true;
+    });
+    if (Object.keys(nextMap).length) normalized[date] = nextMap;
+  });
+
+  if (!Object.keys(normalized).length && subtasks.length) {
+    Object.entries(statusByDate || {}).forEach(([date, status]) => {
+      if (status === 'done') {
+        normalized[date] = Object.fromEntries(subtasks.map((subtask) => [subtask.id, true]));
+      }
+    });
+  }
+
+  return normalized;
+}
+
+function normalizeTaskRecord(task) {
+  const subtasks = (Array.isArray(task.subtasks) ? task.subtasks : []).map((subtask) => ({
+    ...subtask,
+    id: subtask.id || uid(),
+    title: subtask.title || '',
+    done: Boolean(subtask.done),
+  }));
+  const hasWeekdays = Array.isArray(task.weekdays) && task.weekdays.length > 0;
+
+  if (!hasWeekdays) {
+    return {
+      ...task,
+      subtasks,
+    };
+  }
+
+  const normalizedStatusByDate = { ...(task.statusByDate || {}) };
+  const normalizedSubtaskStatusByDate = normalizeRecurringSubtaskStatusByDate(
+    task.subtaskStatusByDate || {},
+    subtasks,
+    normalizedStatusByDate,
+  );
+
+  return {
+    ...task,
+    weekdays: [...task.weekdays].sort((a, b) => a - b),
+    subtasks: subtasks.map((subtask) => ({ ...subtask, done: false })),
+    statusByDate: normalizedStatusByDate,
+    subtaskStatusByDate: normalizedSubtaskStatusByDate,
+    status: task.status || 'pending',
+  };
+}
+
 function withEffectiveTaskStatus(task, date) {
-  return { ...task, status: getTaskStatusForDate(task, date) };
+  return {
+    ...task,
+    status: getTaskStatusForDate(task, date),
+    subtasks: getEffectiveSubtasksForDate(task, date),
+  };
 }
 
 function taskMatchesSearch(task, query) {
@@ -225,7 +298,7 @@ function buildPersistedState(base, parsed) {
     settings: migratePomodoroSettings({ ...base.settings, ...(parsed.settings || {}) }),
     reflections: { ...base.reflections, ...(parsed.reflections || {}) },
     appearance: { ...base.appearance, ...(parsed.appearance || {}) },
-    tasks: Array.isArray(parsed.tasks) ? parsed.tasks : base.tasks,
+    tasks: Array.isArray(parsed.tasks) ? parsed.tasks.map(normalizeTaskRecord) : base.tasks,
     habits: Array.isArray(parsed.habits) ? parsed.habits : base.habits,
     history: Array.isArray(parsed.history) ? parsed.history : base.history,
   };
@@ -969,9 +1042,17 @@ function updateState(updater) { setState((prev) => updater(prev)); }
         const hasWeekdays = Array.isArray(t.weekdays) && t.weekdays.length > 0;
 
         if (hasWeekdays) {
+          const nextDaySubtasks = Object.fromEntries(
+            subtasks.map((subtask) => [subtask.id, status === 'done'])
+          );
+
           return {
             ...t,
             statusByDate: { ...(t.statusByDate || {}), [targetDate]: status },
+            subtaskStatusByDate: {
+              ...(t.subtaskStatusByDate || {}),
+              [targetDate]: nextDaySubtasks,
+            },
           };
         }
 
@@ -988,21 +1069,30 @@ function updateState(updater) { setState((prev) => updater(prev)); }
       ...prev,
       tasks: prev.tasks.map((t) => {
         if (t.id !== taskId) return t;
-        const subtasks = (t.subtasks || []).map((s) => (s.id === subtaskId ? { ...s, done: !s.done } : s));
-        const allDone = subtasks.length > 0 && subtasks.every((s) => s.done);
         const hasWeekdays = Array.isArray(t.weekdays) && t.weekdays.length > 0;
 
         if (hasWeekdays) {
+          const baseSubtasks = Array.isArray(t.subtasks) ? t.subtasks : [];
+          const currentDayMap = { ...(t.subtaskStatusByDate?.[targetDate] || {}) };
+          currentDayMap[subtaskId] = !currentDayMap[subtaskId];
+
+          const allDone = baseSubtasks.length > 0 && baseSubtasks.every((subtask) => Boolean(currentDayMap[subtask.id]));
+
           return {
             ...t,
-            subtasks,
             statusByDate: {
               ...(t.statusByDate || {}),
               [targetDate]: allDone ? 'done' : 'pending',
             },
+            subtaskStatusByDate: {
+              ...(t.subtaskStatusByDate || {}),
+              [targetDate]: currentDayMap,
+            },
           };
         }
 
+        const subtasks = (t.subtasks || []).map((s) => (s.id === subtaskId ? { ...s, done: !s.done } : s));
+        const allDone = subtasks.length > 0 && subtasks.every((s) => s.done);
         return { ...t, subtasks, status: allDone ? 'done' : t.status === 'done' ? 'pending' : t.status };
       }),
     }));
@@ -1022,7 +1112,15 @@ function updateState(updater) { setState((prev) => updater(prev)); }
 
   function removeTask(taskId) { updateState((prev) => ({ ...prev, tasks: prev.tasks.filter((t) => t.id !== taskId) })); toast.push(locale === 'EN-US' ? 'Task removed' : 'Tarefa removida'); }
   function duplicateTask(task) {
-    const copy = { ...task, id: uid(), title: `${task.title} (cópia)` };
+    const copy = normalizeTaskRecord({
+      ...task,
+      id: uid(),
+      title: `${task.title} (cópia)`,
+      status: 'pending',
+      statusByDate: {},
+      subtaskStatusByDate: {},
+      subtasks: (task.subtasks || []).map((subtask) => ({ ...subtask, done: false })),
+    });
     updateState((prev) => ({ ...prev, tasks: [...prev.tasks, copy] }));
     toast.push('Tarefa duplicada');
   }
@@ -1039,6 +1137,7 @@ function updateState(updater) { setState((prev) => updater(prev)); }
       date: todayISO(),
       weekdays: [weekdayFromISO(todayISO())],
       statusByDate: {},
+      subtaskStatusByDate: {},
       color: priorityColor('média'),
       subtasks: [],
     });
@@ -1046,17 +1145,24 @@ function updateState(updater) { setState((prev) => updater(prev)); }
   }
 
   function saveTask(task) {
-    const cleanedSubtasks = (task.subtasks || []).filter((s) => (s.title || '').trim()).map((s) => ({ ...s, title: s.title.trim() }));
+    const cleanedSubtasks = (task.subtasks || [])
+      .filter((s) => (s.title || '').trim())
+      .map((s) => ({ ...s, id: s.id || uid(), title: s.title.trim() }));
     const hasWeekdays = Array.isArray(task.weekdays) && task.weekdays.length > 0;
-    const normalizedTask = {
+    const normalizedTask = normalizeTaskRecord({
       ...task,
       date: task.date || todayISO(),
       weekdays: hasWeekdays ? [...task.weekdays].sort((a, b) => a - b) : [],
       statusByDate: hasWeekdays ? (task.statusByDate || {}) : {},
+      subtaskStatusByDate: hasWeekdays
+        ? normalizeRecurringSubtaskStatusByDate(task.subtaskStatusByDate || {}, cleanedSubtasks, task.statusByDate || {})
+        : {},
       color: priorityColor(task.priority),
-      subtasks: cleanedSubtasks,
+      subtasks: hasWeekdays
+        ? cleanedSubtasks.map((subtask) => ({ ...subtask, done: false }))
+        : cleanedSubtasks,
       status: cleanedSubtasks.length && cleanedSubtasks.every((s) => s.done) ? 'done' : task.status === 'done' && cleanedSubtasks.length ? 'pending' : task.status,
-    };
+    });
     updateState((prev) => {
       const exists = prev.tasks.some((t) => t.id === normalizedTask.id);
       const tasks = exists ? prev.tasks.map((t) => (t.id === normalizedTask.id ? normalizedTask : t)) : [...prev.tasks, normalizedTask];
@@ -1985,6 +2091,7 @@ function TaskModal({ open, onClose, task, onSave, categories, locale = 'PT-BR' }
     date: task.date || todayISO(),
     weekdays: Array.isArray(task.weekdays) && task.weekdays.length ? task.weekdays : [weekdayFromISO(todayISO())],
     statusByDate: task.statusByDate || {},
+    subtaskStatusByDate: task.subtaskStatusByDate || {},
     subtasks: task.subtasks?.length ? task.subtasks : [{ id: uid(), title: '', done: false }]
   } : null), [task]);
   if (!open || !draft) return null;
@@ -2002,7 +2109,7 @@ function TaskModal({ open, onClose, task, onSave, categories, locale = 'PT-BR' }
     setDraft((prev) => { const subtasks = (prev.subtasks || []).filter((_, i) => i !== index); return { ...prev, subtasks: subtasks.length ? subtasks : [{ id: uid(), title: '', done: false }] }; });
   }
   return (
-    <div className="modal-backdrop" onClick={onClose}>
+    <div className="modal-backdrop">
       <div className="modal-card glass" onClick={(e) => e.stopPropagation()}>
         <div className="section-head-row">
           <div><div className="section-title">{task?.title ? `${copy.edit} ${copy.taskTitle.toLowerCase()}` : copy.newTask}</div><div className="section-subtitle">{copy.fillMainFields}</div></div>
@@ -2164,7 +2271,7 @@ function HabitModal({ open, onClose, habit, onSave, categories, locale = 'PT-BR'
   useEffect(() => setDraft(habit), [habit]);
   if (!open || !draft) return null;
   return (
-    <div className="modal-backdrop" onClick={onClose}>
+    <div className="modal-backdrop">
       <div className="modal-card glass" onClick={(e) => e.stopPropagation()}>
         <div className="section-head-row">
           <div><div className="section-title">{habit?.title ? `${copy.edit} ${locale === 'EN-US' ? 'habit' : 'hábito'}` : copy.newHabit}</div><div className="section-subtitle">{locale === 'EN-US' ? 'Set goal, category and icon.' : 'Defina meta, categoria e ícone.'}</div></div>
@@ -2198,7 +2305,7 @@ function ResetConfirmModal({ open, onClose, onConfirm, title, description, confi
   if (!open) return null;
 
   return (
-    <div className="modal-backdrop" onClick={onClose}>
+    <div className="modal-backdrop">
       <div className="modal-card glass confirm-modal-card" onClick={(e) => e.stopPropagation()}>
         <div className="confirm-modal-icon danger">
           <Trash2 size={22} />
