@@ -58,6 +58,43 @@ function withEffectiveTaskStatus(task, date) {
   return { ...task, status: getTaskStatusForDate(task, date) };
 }
 
+function taskMatchesSearch(task, query) {
+  const normalizedQuery = (query || '').trim().toLowerCase();
+  if (!normalizedQuery) return true;
+  return (
+    task.title.toLowerCase().includes(normalizedQuery) ||
+    (task.description || '').toLowerCase().includes(normalizedQuery)
+  );
+}
+
+function buildRemainingWeekDates(referenceDate = todayISO()) {
+  const startDay = weekdayFromISO(referenceDate);
+  const daysUntilEndOfWeek = 6 - startDay;
+  return Array.from({ length: daysUntilEndOfWeek + 1 }, (_, index) => offsetDate(referenceDate, index));
+}
+
+function formatRoutineDayHeading(date, locale = 'PT-BR') {
+  return new Intl.DateTimeFormat(locale, {
+    weekday: 'long',
+    day: '2-digit',
+    month: 'long',
+  }).format(new Date(`${date}T00:00:00`));
+}
+
+function formatTaskWeekdays(task, locale = 'PT-BR') {
+  const labels = WEEKDAY_SHORT[locale] || WEEKDAY_SHORT['PT-BR'];
+  if (Array.isArray(task.weekdays) && task.weekdays.length) {
+    return [...task.weekdays].sort((a, b) => a - b).map((day) => labels[day]).join(' • ');
+  }
+  if (task.date) {
+    return new Intl.DateTimeFormat(locale, {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+    }).format(new Date(`${task.date}T00:00:00`));
+  }
+  return '';
+}
 
 function sortTasksByTime(tasks) {
   return [...tasks].sort((a, b) => {
@@ -754,6 +791,7 @@ export default function DisciplinaTotalApp() {
   const [storageReady, setStorageReady] = useState(false);
   const [page, setPage] = useState('dashboard');
   const [search, setSearch] = useState('');
+  const [routineView, setRoutineView] = useState('today');
   const [showTaskModal, setShowTaskModal] = useState(false);
   const [editingTask, setEditingTask] = useState(null);
   const [showHabitModal, setShowHabitModal] = useState(false);
@@ -827,15 +865,24 @@ export default function DisciplinaTotalApp() {
 
   const todayTasksRaw = state.tasks.filter((t) => taskMatchesDate(t, todayISO()));
   const todayTasks = sortTasksByTime(todayTasksRaw.map((task) => withEffectiveTaskStatus(task, todayISO())));
-  const routineTasksRaw = state.tasks.filter((t) => taskMatchesDate(t, todayISO()));
-  const routineTasks = sortTasksByTime(routineTasksRaw.map((task) => withEffectiveTaskStatus(task, todayISO())));
+  const routineReferenceDate = todayISO();
+  const routineWeekDates = buildRemainingWeekDates(routineReferenceDate);
   const filteredTasks = sortTasksByTime(
-    routineTasks
-      .filter((task) =>
-        task.title.toLowerCase().includes(search.toLowerCase()) ||
-        (task.description || '').toLowerCase().includes(search.toLowerCase())
-      )
+    state.tasks
+      .filter((task) => taskMatchesDate(task, routineReferenceDate))
+      .map((task) => withEffectiveTaskStatus(task, routineReferenceDate))
+      .filter((task) => taskMatchesSearch(task, search))
   );
+  const routineWeekGroups = routineWeekDates.map((date) => ({
+    date,
+    tasks: sortTasksByTime(
+      state.tasks
+        .filter((task) => taskMatchesDate(task, date))
+        .map((task) => withEffectiveTaskStatus(task, date))
+        .filter((task) => taskMatchesSearch(task, search))
+    ),
+  }));
+  const visibleRoutineWeekGroups = routineWeekGroups.filter((group) => group.tasks.length > 0);
 
   const todayDiscipline = disciplineForDate(state, todayISO());
   const disciplineMeta = getDisciplineLabel(todayDiscipline);
@@ -1106,6 +1153,44 @@ function updateState(updater) { setState((prev) => updater(prev)); }
     return value.slice(0, selectionStart) + '\n' + value.slice(selectionEnd);
   }
 
+  function renderRoutineTaskCard(task, targetDate) {
+    return (
+      <motion.div key={`${task.id}-${targetDate}`} layout className="glass task-card-premium">
+        <div className="task-card-body">
+          <button className="task-check" onClick={() => setTaskStatus(task.id, task.status === 'done' ? 'pending' : 'done', targetDate)}>
+            {task.status === 'done' ? <CheckCircle2 size={20} /> : <Circle size={20} />}
+          </button>
+          <div className="task-card-copy">
+            <div className={cls('task-card-title', task.status === 'done' && 'done')}>{task.title}</div>
+            <div className="task-card-meta">
+              {categoryLabel(task.category, locale)} • {priorityLabel(task.priority, locale)}
+              {task.time ? ` • ${task.time}` : ''}
+              {formatTaskWeekdays(task, locale) ? ` • ${formatTaskWeekdays(task, locale)}` : ''}
+            </div>
+            {task.description && <p className="task-desc">{task.description}</p>}
+            {!!task.subtasks.length && (
+              <div className="subtask-list">
+                {task.subtasks.map((s) => (
+                  <div key={s.id} className="subtask-item">
+                    <button type="button" className={cls('subtask-toggle', s.done && 'done')} onClick={() => toggleSubtask(task.id, s.id)}>{s.done ? '✓' : ''}</button>
+                    <span className={cls(s.done && 'done')}>{s.title}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="task-actions-row">
+              <button className="ghost-btn" onClick={() => setTaskStatus(task.id, 'done', targetDate)}>{copy.done}</button>
+              <button className="ghost-btn" onClick={() => setTaskStatus(task.id, 'pending', targetDate)}>{copy.pendingBtn}</button>
+              <button className="ghost-btn" onClick={() => { setEditingTask(task); setShowTaskModal(true); }}><Pencil size={14} /> {copy.edit}</button>
+              <button className="ghost-btn" onClick={() => duplicateTask(task)}>{copy.duplicate}</button>
+              <button className="danger-btn" onClick={() => removeTask(task.id)}><Trash2 size={14} /> {copy.delete}</button>
+            </div>
+          </div>
+        </div>
+      </motion.div>
+    );
+  }
+
   const pageBody = (() => {
 if (page === 'dashboard') {
   return (
@@ -1336,50 +1421,61 @@ if (page === 'dashboard') {
           <section className="glass section-card">
             <SectionHeader
               title={locale === 'EN-US' ? 'Your operational board' : 'Seu painel operacional do dia'}
+              subtitle={locale === 'EN-US' ? 'Choose between today only or the remaining days of the week.' : 'Escolha entre ver só hoje ou os próximos dias da semana.'}
               action={<button className="primary-btn" onClick={openNewTask}><Plus size={16} /> {copy.newTask}</button>}
             />
-            <div className="toolbar-row">
+            <div className="toolbar-row" style={{ flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                <button
+                  className="ghost-btn"
+                  onClick={() => setRoutineView('today')}
+                  style={routineView === 'today' ? { background: 'var(--primary)', color: '#000', borderColor: 'transparent', fontWeight: 800 } : undefined}
+                >
+                  {locale === 'EN-US' ? 'Task of the day' : 'Tarefa do dia'}
+                </button>
+                <button
+                  className="ghost-btn"
+                  onClick={() => setRoutineView('week')}
+                  style={routineView === 'week' ? { background: 'var(--primary)', color: '#000', borderColor: 'transparent', fontWeight: 800 } : undefined}
+                >
+                  {locale === 'EN-US' ? 'All tasks' : 'Todas as tarefas'}
+                </button>
+              </div>
               <div className="search-box"><Search size={16} /><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder={locale === 'EN-US' ? 'Search task' : 'Buscar tarefa'} /></div>
             </div>
           </section>
-          <div className="task-grid">
-            {filteredTasks.length ? filteredTasks.map((task) => (
-              <motion.div key={task.id} layout className="glass task-card-premium">
-                <div className="task-card-body">
-                  <button className="task-check" onClick={() => setTaskStatus(task.id, task.status === 'done' ? 'pending' : 'done')}>
-                    {task.status === 'done' ? <CheckCircle2 size={20} /> : <Circle size={20} />}
-                  </button>
-                  <div className="task-card-copy">
-                    <div className={cls('task-card-title', task.status === 'done' && 'done')}>{task.title}</div>
-                    <div className="task-card-meta">{categoryLabel(task.category, locale)} • {priorityLabel(task.priority, locale)} {task.time ? `• ${task.time}` : ''}</div>
-                    {task.description && <p className="task-desc">{task.description}</p>}
-                    {!!task.subtasks.length && (
-                      <div className="subtask-list">
-                        {task.subtasks.map((s) => (
-                          <div key={s.id} className="subtask-item">
-                            <button type="button" className={cls('subtask-toggle', s.done && 'done')} onClick={() => toggleSubtask(task.id, s.id)}>{s.done ? '✓' : ''}</button>
-                            <span className={cls(s.done && 'done')}>{s.title}</span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                    <div className="task-actions-row">
-                      <button className="ghost-btn" onClick={() => setTaskStatus(task.id, 'done')}>{copy.done}</button>
-                      <button className="ghost-btn" onClick={() => setTaskStatus(task.id, 'pending')}>{copy.pendingBtn}</button>
-                      <button className="ghost-btn" onClick={() => { setEditingTask(task); setShowTaskModal(true); }}><Pencil size={14} /> {copy.edit}</button>
-                      <button className="ghost-btn" onClick={() => duplicateTask(task)}>{copy.duplicate}</button>
-                      <button className="danger-btn" onClick={() => removeTask(task.id)}><Trash2 size={14} /> {copy.delete}</button>
-                    </div>
-                  </div>
+
+          {routineView === 'today' ? (
+            <div className="task-grid">
+              {filteredTasks.length ? filteredTasks.map((task) => renderRoutineTaskCard(task, routineReferenceDate)) : (
+                <div className="empty-state-card">
+                  <div className="row-title">{locale === 'EN-US' ? 'No routines scheduled for today.' : 'Nenhuma rotina programada para hoje.'}</div>
+                  <div className="row-sub">{locale === 'EN-US' ? 'Create a task and mark the weekdays when it should appear in the panel.' : 'Crie uma tarefa e marque os dias da semana em que ela deve aparecer no painel.'}</div>
                 </div>
-              </motion.div>
-            )) : (
-              <div className="empty-state-card">
-                <div className="row-title">{locale === 'EN-US' ? 'No routines scheduled for today.' : 'Nenhuma rotina programada para hoje.'}</div>
-                <div className="row-sub">{locale === 'EN-US' ? 'Create a task and mark the weekdays when it should appear in the panel.' : 'Crie uma tarefa e marque os dias da semana em que ela deve aparecer no painel.'}</div>
+              )}
+            </div>
+          ) : (
+            visibleRoutineWeekGroups.length ? (
+              <div className="stack large-gap">
+                {visibleRoutineWeekGroups.map((group) => (
+                  <section key={group.date} className="glass section-card">
+                    <SectionHeader
+                      title={formatRoutineDayHeading(group.date, locale)}
+                      subtitle={locale === 'EN-US' ? `${group.tasks.length} task${group.tasks.length > 1 ? 's' : ''} scheduled.` : `${group.tasks.length} tarefa${group.tasks.length > 1 ? 's' : ''} programada${group.tasks.length > 1 ? 's' : ''}.`}
+                    />
+                    <div className="task-grid">
+                      {group.tasks.map((task) => renderRoutineTaskCard(task, group.date))}
+                    </div>
+                  </section>
+                ))}
               </div>
-            )}
-          </div>
+            ) : (
+              <div className="empty-state-card">
+                <div className="row-title">{locale === 'EN-US' ? 'No tasks found from today until the end of the week.' : 'Nenhuma tarefa encontrada de hoje até o fim da semana.'}</div>
+                <div className="row-sub">{locale === 'EN-US' ? 'Use the recurring weekdays to make tasks appear on the correct days.' : 'Use os dias recorrentes para fazer as tarefas aparecerem nos dias certos.'}</div>
+              </div>
+            )
+          )}
         </div>
       );
     }
