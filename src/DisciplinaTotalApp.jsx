@@ -525,11 +525,17 @@ function getDisciplineLabel(value) {
   return { text: 'LOCKED IN', tone: 'success' };
 }
 
+function getTasksForDate(state, date) {
+  return state.tasks
+    .filter((task) => taskMatchesDate(task, date))
+    .map((task) => withEffectiveTaskStatus(task, date));
+}
+
 function disciplineForDate(state, date) {
-  const tasks = state.tasks.filter((t) => t.date === date);
+  const tasks = getTasksForDate(state, date);
   const habits = state.habits;
-  const taskPercent = tasks.length ? (tasks.filter((t) => t.status === 'done').length / tasks.length) * 100 : 0;
-  const habitPercent = habits.length ? (habits.filter((h) => (h.logs[date] || 0) >= h.target).length / habits.length) * 100 : 0;
+  const taskPercent = tasks.length ? (tasks.filter((task) => task.status === 'done').length / tasks.length) * 100 : 0;
+  const habitPercent = habits.length ? (habits.filter((habit) => (habit.logs[date] || 0) >= habit.target).length / habits.length) * 100 : 0;
   if (!tasks.length && !habits.length) return 0;
   if (tasks.length && habits.length) return percentage((taskPercent + habitPercent) / 2);
   return percentage(taskPercent || habitPercent);
@@ -537,11 +543,12 @@ function disciplineForDate(state, date) {
 
 function buildFullHistory(state) {
   const today = todayISO();
+  const todayTasks = getTasksForDate(state, today);
   const todayEntry = {
     date: today,
     discipline: disciplineForDate(state, today),
-    tasksDone: state.tasks.filter((t) => t.date === today && t.status === 'done').length,
-    tasksTotal: state.tasks.filter((t) => t.date === today).length,
+    tasksDone: todayTasks.filter((task) => task.status === 'done').length,
+    tasksTotal: todayTasks.length,
   };
   const filtered = state.history.filter((h) => h.date !== today);
   return [...filtered, todayEntry].sort((a, b) => a.date.localeCompare(b.date));
@@ -904,7 +911,7 @@ const top3 = sortTasksByTime([...todayTasks].sort((a, b) => priorityValue(b.prio
 const weeklyGoals = (state.settings.weeklyGoals || []).map((goal) => goal.trim()).filter(Boolean);
 const hasWeeklyGoals = weeklyGoals.length > 0;
 const todayCompletedHabits = state.habits.filter((habit) => (habit.logs[todayISO()] || 0) >= Math.max(1, Number(habit.target || 1))).length;
-const weekTasks = state.tasks.filter((task) => weekDates.includes(task.date));
+const weekTasks = weekDates.flatMap((date) => getTasksForDate(state, date).map((task) => ({ ...task, effectiveDate: date })));
 const weekDoneTasks = weekTasks.filter((task) => task.status === 'done').length;
 const weekTotalTasks = weekTasks.length;
 const weekCompletionRate = percentage(weekTotalTasks ? (weekDoneTasks / weekTotalTasks) * 100 : 0);
@@ -913,7 +920,7 @@ const bestWeekDay = [...weekSeries].sort((a, b) => b.disciplina - a.disciplina)[
 const worstWeekDay = [...weekSeries].sort((a, b) => a.disciplina - b.disciplina)[0] || null;
 const nextPendingTask = todayTasks.find((task) => task.status !== 'done') || null;
 const weeklyTaskFlow = weekDates.map((date) => {
-  const tasksForDay = sortTasksByTime(state.tasks.filter((task) => task.date === date));
+  const tasksForDay = sortTasksByTime(getTasksForDate(state, date));
   const doneForDay = tasksForDay.filter((task) => task.status === 'done').length;
   return {
     label: formatShort(date),
@@ -1560,7 +1567,7 @@ if (page === 'dashboard') {
             <div className="detail-stat"><div className="eyebrow">{copy.discipline}</div><div className="big-number">{selected?.discipline || 0}%</div></div>
             <div className="stack small-gap">
               <div className="row-title">{locale === 'EN-US' ? 'Tasks' : 'Tarefas'}</div>
-              {sortTasksByTime(state.tasks.filter((t) => t.date === selected?.date)).map((task) => (
+              {sortTasksByTime(getTasksForDate(state, selected?.date || todayISO())).map((task) => (
                 <div key={task.id} className="simple-card">
                   <div className="row-title">{task.title}</div>
                   <div className="row-sub">{categoryLabel(task.category, locale)} • {statusLabel(task.status, locale)}</div>
