@@ -16,7 +16,7 @@ const STORAGE_KEY = 'disciplina-total-premium-v16';
 const INDEXED_DB_NAME = 'disciplina-total-premium-db';
 const INDEXED_DB_VERSION = 1;
 const INDEXED_DB_STORE = 'app_state';
-const SNAKE_IMG_SRC = '/ouroboros.png';
+const SNAKE_IMG_SRC = `${import.meta.env.BASE_URL}ouroboros.png`;
 
 const todayISO = () => new Date().toISOString().slice(0, 10);
 const uid = () => Math.random().toString(36).slice(2, 9);
