@@ -604,11 +604,36 @@ function getTasksForDate(state, date) {
     .map((task) => withEffectiveTaskStatus(task, date));
 }
 
+function getTaskProgressForDate(task, date) {
+  const effectiveTask = withEffectiveTaskStatus(task, date);
+  const subtasks = Array.isArray(effectiveTask.subtasks) ? effectiveTask.subtasks.filter((subtask) => (subtask.title || '').trim()) : [];
+
+  if (subtasks.length) {
+    const doneSubtasks = subtasks.filter((subtask) => subtask.done).length;
+    return doneSubtasks / subtasks.length;
+  }
+
+  return effectiveTask.status === 'done' ? 1 : 0;
+}
+
+function getHabitProgressForDate(habit, date) {
+  const target = Math.max(1, Number(habit.target || 1));
+  const value = Math.max(0, Number(habit.logs?.[date] || 0));
+  return Math.min(value / target, 1);
+}
+
 function disciplineForDate(state, date) {
-  const tasks = getTasksForDate(state, date);
+  const tasks = state.tasks.filter((task) => taskMatchesDate(task, date));
   const habits = state.habits;
-  const taskPercent = tasks.length ? (tasks.filter((task) => task.status === 'done').length / tasks.length) * 100 : 0;
-  const habitPercent = habits.length ? (habits.filter((habit) => (habit.logs[date] || 0) >= habit.target).length / habits.length) * 100 : 0;
+
+  const taskPercent = tasks.length
+    ? (tasks.reduce((sum, task) => sum + getTaskProgressForDate(task, date), 0) / tasks.length) * 100
+    : 0;
+
+  const habitPercent = habits.length
+    ? (habits.reduce((sum, habit) => sum + getHabitProgressForDate(habit, date), 0) / habits.length) * 100
+    : 0;
+
   if (!tasks.length && !habits.length) return 0;
   if (tasks.length && habits.length) return percentage((taskPercent + habitPercent) / 2);
   return percentage(taskPercent || habitPercent);
