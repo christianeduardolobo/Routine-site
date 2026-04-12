@@ -30,6 +30,35 @@ const offsetDate = (date, amount) => {
 };
 const percentage = (n) => Math.max(0, Math.min(100, Math.round(n)));
 
+const WEEKDAY_KEYS = ['domingo', 'segunda', 'terça', 'quarta', 'quinta', 'sexta', 'sábado'];
+const WEEKDAY_SHORT = {
+  'PT-BR': ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'],
+  'EN-US': ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'],
+};
+
+function weekdayFromISO(date) {
+  return new Date(`${date}T00:00:00`).getDay();
+}
+
+function taskMatchesDate(task, date) {
+  if (Array.isArray(task.weekdays) && task.weekdays.length) {
+    return task.weekdays.includes(weekdayFromISO(date));
+  }
+  return task.date === date;
+}
+
+function getTaskStatusForDate(task, date) {
+  if (Array.isArray(task.weekdays) && task.weekdays.length) {
+    return task.statusByDate?.[date] || 'pending';
+  }
+  return task.status || 'pending';
+}
+
+function withEffectiveTaskStatus(task, date) {
+  return { ...task, status: getTaskStatusForDate(task, date) };
+}
+
+
 function sortTasksByTime(tasks) {
   return [...tasks].sort((a, b) => {
     const timeA = a.time || '99:99';
@@ -739,7 +768,6 @@ export default function DisciplinaTotalApp() {
   const [pomodoroLinkNameDraft, setPomodoroLinkNameDraft] = useState('');
   const [pomodoroUrlDraft, setPomodoroUrlDraft] = useState('');
   const [historyDate, setHistoryDate] = useState(todayISO());
-  const [selectedRoutineDate, setSelectedRoutineDate] = useState(todayISO());
   const fileRef = useRef(null);
   const bgUploadRef = useRef(null);
   const toast = useToast();
@@ -797,15 +825,16 @@ export default function DisciplinaTotalApp() {
   const weekSeries = weekDates.map((d) => ({ label: formatShort(d, locale), raw: d, disciplina: disciplineForDate(state, d) }));
   const monthSeries = getDateRange(30).map((d) => ({ label: formatShort(d, locale), raw: d, disciplina: disciplineForDate(state, d) }));
 
-  const todayTasksRaw = state.tasks.filter((t) => t.date === todayISO());
-  const todayTasks = sortTasksByTime(todayTasksRaw);
-  const routineTasksRaw = state.tasks.filter((t) => t.date === selectedRoutineDate);
-  const routineTasks = sortTasksByTime(routineTasksRaw);
+  const todayTasksRaw = state.tasks.filter((t) => taskMatchesDate(t, todayISO()));
+  const todayTasks = sortTasksByTime(todayTasksRaw.map((task) => withEffectiveTaskStatus(task, todayISO())));
+  const routineTasksRaw = state.tasks.filter((t) => taskMatchesDate(t, todayISO()));
+  const routineTasks = sortTasksByTime(routineTasksRaw.map((task) => withEffectiveTaskStatus(task, todayISO())));
   const filteredTasks = sortTasksByTime(
-    routineTasksRaw.filter((task) =>
-      task.title.toLowerCase().includes(search.toLowerCase()) ||
-      (task.description || '').toLowerCase().includes(search.toLowerCase())
-    )
+    routineTasks
+      .filter((task) =>
+        task.title.toLowerCase().includes(search.toLowerCase()) ||
+        (task.description || '').toLowerCase().includes(search.toLowerCase())
+      )
   );
 
   const todayDiscipline = disciplineForDate(state, todayISO());
@@ -836,7 +865,6 @@ const daysAboveGoal = weekSeries.filter((item) => item.disciplina >= state.setti
 const bestWeekDay = [...weekSeries].sort((a, b) => b.disciplina - a.disciplina)[0] || null;
 const worstWeekDay = [...weekSeries].sort((a, b) => a.disciplina - b.disciplina)[0] || null;
 const nextPendingTask = todayTasks.find((task) => task.status !== 'done') || null;
-const selectedRoutineDateLabel = new Intl.DateTimeFormat(locale, { dateStyle: 'full' }).format(new Date(selectedRoutineDate + 'T00:00:00'));
 const weeklyTaskFlow = weekDates.map((date) => {
   const tasksForDay = sortTasksByTime(state.tasks.filter((task) => task.date === date));
   const doneForDay = tasksForDay.filter((task) => task.status === 'done').length;
@@ -878,12 +906,21 @@ const mutedBarColor = isLight ? '#cbd5e1' : 'rgba(255,255,255,0.22)';
 
 function updateState(updater) { setState((prev) => updater(prev)); }
 
-  function setTaskStatus(taskId, status) {
+  function setTaskStatus(taskId, status, targetDate = todayISO()) {
     updateState((prev) => ({
       ...prev,
       tasks: prev.tasks.map((t) => {
         if (t.id !== taskId) return t;
         const subtasks = Array.isArray(t.subtasks) ? t.subtasks : [];
+        const hasWeekdays = Array.isArray(t.weekdays) && t.weekdays.length > 0;
+
+        if (hasWeekdays) {
+          return {
+            ...t,
+            statusByDate: { ...(t.statusByDate || {}), [targetDate]: status },
+          };
+        }
+
         if (!subtasks.length) return { ...t, status };
         if (status === 'done') return { ...t, status: 'done', subtasks: subtasks.map((s) => ({ ...s, done: true })) };
         return { ...t, status, subtasks: subtasks.map((s) => ({ ...s, done: false })) };
@@ -924,14 +961,33 @@ function updateState(updater) { setState((prev) => updater(prev)); }
   }
 
   function openNewTask() {
-    setEditingTask({ id: uid(), title: '', description: '', category: 'pessoal', priority: 'média', time: '', status: 'pending', date: selectedRoutineDate, color: priorityColor('média'), subtasks: [] });
+    setEditingTask({
+      id: uid(),
+      title: '',
+      description: '',
+      category: 'pessoal',
+      priority: 'média',
+      time: '',
+      status: 'pending',
+      date: todayISO(),
+      weekdays: [weekdayFromISO(todayISO())],
+      statusByDate: {},
+      color: priorityColor('média'),
+      subtasks: [],
+    });
     setShowTaskModal(true);
   }
 
   function saveTask(task) {
     const cleanedSubtasks = (task.subtasks || []).filter((s) => (s.title || '').trim()).map((s) => ({ ...s, title: s.title.trim() }));
+    const hasWeekdays = Array.isArray(task.weekdays) && task.weekdays.length > 0;
     const normalizedTask = {
-      ...task, color: priorityColor(task.priority), subtasks: cleanedSubtasks,
+      ...task,
+      date: task.date || todayISO(),
+      weekdays: hasWeekdays ? [...task.weekdays].sort((a, b) => a - b) : [],
+      statusByDate: hasWeekdays ? (task.statusByDate || {}) : {},
+      color: priorityColor(task.priority),
+      subtasks: cleanedSubtasks,
       status: cleanedSubtasks.length && cleanedSubtasks.every((s) => s.done) ? 'done' : task.status === 'done' && cleanedSubtasks.length ? 'pending' : task.status,
     };
     updateState((prev) => {
@@ -1280,20 +1336,10 @@ if (page === 'dashboard') {
           <section className="glass section-card">
             <SectionHeader
               title={locale === 'EN-US' ? 'Your operational board' : 'Seu painel operacional do dia'}
-              subtitle={selectedRoutineDateLabel}
               action={<button className="primary-btn" onClick={openNewTask}><Plus size={16} /> {copy.newTask}</button>}
             />
             <div className="toolbar-row">
               <div className="search-box"><Search size={16} /><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder={locale === 'EN-US' ? 'Search task' : 'Buscar tarefa'} /></div>
-              <input
-                type="date"
-                value={selectedRoutineDate}
-                onChange={(e) => setSelectedRoutineDate(e.target.value)}
-                aria-label={locale === 'EN-US' ? 'Routine date' : 'Data da rotina'}
-              />
-              <button className="ghost-btn" onClick={() => setSelectedRoutineDate(todayISO())}>
-                {locale === 'EN-US' ? 'Today' : 'Hoje'}
-              </button>
             </div>
           </section>
           <div className="task-grid">
@@ -1329,8 +1375,8 @@ if (page === 'dashboard') {
               </motion.div>
             )) : (
               <div className="empty-state-card">
-                <div className="row-title">{locale === 'EN-US' ? 'No routines on this day.' : 'Nenhuma rotina neste dia.'}</div>
-                <div className="row-sub">{locale === 'EN-US' ? 'Choose another date or create a new task for the selected day.' : 'Escolha outra data ou crie uma nova tarefa para o dia selecionado.'}</div>
+                <div className="row-title">{locale === 'EN-US' ? 'No routines scheduled for today.' : 'Nenhuma rotina programada para hoje.'}</div>
+                <div className="row-sub">{locale === 'EN-US' ? 'Create a task and mark the weekdays when it should appear in the panel.' : 'Crie uma tarefa e marque os dias da semana em que ela deve aparecer no painel.'}</div>
               </div>
             )}
           </div>
@@ -1708,7 +1754,7 @@ if (page === 'stats') {
         </main>
       </div>
 
-      <TaskModal open={showTaskModal} locale={locale} onClose={() => { setShowTaskModal(false); setEditingTask(null); }} task={editingTask} onSave={saveTask} categories={state.settings.categories} selectedDate={selectedRoutineDate} />
+      <TaskModal open={showTaskModal} locale={locale} onClose={() => { setShowTaskModal(false); setEditingTask(null); }} task={editingTask} onSave={saveTask} categories={state.settings.categories} />
       <HabitModal open={showHabitModal} locale={locale} onClose={() => { setShowHabitModal(false); setEditingHabit(null); }} habit={editingHabit} onSave={saveHabit} categories={state.settings.categories} />
       <ResetConfirmModal
         open={showResetModal}
@@ -1814,10 +1860,17 @@ function NumberField({ label, value, onCommit, min = 0, placeholder = '' }) {
     </Field>
   );
 }
-function TaskModal({ open, onClose, task, onSave, categories, selectedDate = todayISO(), locale = 'PT-BR' }) {
+function TaskModal({ open, onClose, task, onSave, categories, locale = 'PT-BR' }) {
   const copy = getCopy(locale);
+  const weekdayLabels = WEEKDAY_SHORT[locale] || WEEKDAY_SHORT['PT-BR'];
   const [draft, setDraft] = useState(null);
-  useEffect(() => setDraft(task ? { ...task, date: task.date || selectedDate, subtasks: task.subtasks?.length ? task.subtasks : [{ id: uid(), title: '', done: false }] } : null), [task, selectedDate]);
+  useEffect(() => setDraft(task ? {
+    ...task,
+    date: task.date || todayISO(),
+    weekdays: Array.isArray(task.weekdays) && task.weekdays.length ? task.weekdays : [weekdayFromISO(todayISO())],
+    statusByDate: task.statusByDate || {},
+    subtasks: task.subtasks?.length ? task.subtasks : [{ id: uid(), title: '', done: false }]
+  } : null), [task]);
   if (!open || !draft) return null;
   function updateSubtask(index, value) { setDraft((prev) => ({ ...prev, subtasks: prev.subtasks.map((s, i) => (i === index ? { ...s, title: value } : s)) })); }
   function addSubtask(afterIndex = null) {
@@ -1851,9 +1904,36 @@ function TaskModal({ open, onClose, task, onSave, categories, selectedDate = tod
               <option value="baixa">{copy.low}</option><option value="média">{copy.medium}</option><option value="alta">{copy.high}</option><option value="crítica">{copy.critical}</option>
             </select>
           </Field>
-          <Field label={locale === 'EN-US' ? 'Day' : 'Dia'}>
-            <input type="date" value={draft.date || selectedDate} onChange={(e) => setDraft({ ...draft, date: e.target.value })} />
-          </Field>
+          <div className="field" style={{ gridColumn: '1 / -1' }}>
+            <span>{locale === 'EN-US' ? 'Days of the week' : 'Dias da semana'}</span>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              {weekdayLabels.map((label, index) => {
+                const active = (draft.weekdays || []).includes(index);
+                return (
+                  <button
+                    key={label}
+                    type="button"
+                    className="ghost-btn compact"
+                    onClick={() => {
+                      const current = Array.isArray(draft.weekdays) ? draft.weekdays : [];
+                      const weekdays = current.includes(index)
+                        ? current.filter((day) => day !== index)
+                        : [...current, index].sort((a, b) => a - b);
+                      setDraft({ ...draft, weekdays });
+                    }}
+                    style={active ? { background: 'var(--primary)', color: '#000', borderColor: 'transparent', fontWeight: 800 } : undefined}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+            <small style={{ color: 'var(--muted)' }}>
+              {locale === 'EN-US'
+                ? 'Mark the weekdays when this task should appear in the daily panel.'
+                : 'Marque os dias da semana em que essa tarefa deve aparecer no painel diário.'}
+            </small>
+          </div>
           <Field label={copy.time}><input value={draft.time || ''} onChange={(e) => setDraft({ ...draft, time: e.target.value })} placeholder="08:00" /></Field>
           <div className="field helper-card"><span>{copy.discipline}</span><small>{copy.disciplineHelp}</small></div>
           <Field label={copy.description}><textarea value={draft.description || ''} onChange={(e) => setDraft({ ...draft, description: e.target.value })} /></Field>
