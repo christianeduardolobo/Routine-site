@@ -3,7 +3,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import {
   LayoutDashboard, ListTodo, Target, CalendarDays, BarChart3, Settings,
   Plus, CheckCircle2, Circle, Search, Flame, Sparkles, Trophy, Brain,
-  Download, Upload, Trash2, Pencil, ChevronUp, ChevronDown,
+  Download, Upload, Trash2, Pencil, Copy, ChevronUp, ChevronDown,
   TrendingUp, TrendingDown, Clock3, Focus, Dumbbell,
   BookOpen, Briefcase, HeartPulse, BedDouble, Droplets,
 } from 'lucide-react';
@@ -1033,6 +1033,10 @@ const mutedBarColor = isLight ? '#cbd5e1' : 'rgba(255,255,255,0.22)';
 
 function updateState(updater) { setState((prev) => updater(prev)); }
 
+  function getBaseTaskById(taskId) {
+    return state.tasks.find((task) => task.id === taskId) || null;
+  }
+
   function setTaskStatus(taskId, status, targetDate = todayISO()) {
     updateState((prev) => ({
       ...prev,
@@ -1110,7 +1114,39 @@ function updateState(updater) { setState((prev) => updater(prev)); }
     }));
   }
 
-  function removeTask(taskId) { updateState((prev) => ({ ...prev, tasks: prev.tasks.filter((t) => t.id !== taskId) })); toast.push(locale === 'EN-US' ? 'Task removed' : 'Tarefa removida'); }
+
+  function removeTask(taskId, targetDate = null) {
+    updateState((prev) => {
+      const tasks = prev.tasks.flatMap((task) => {
+        if (task.id !== taskId) return [task];
+
+        const hasWeekdays = Array.isArray(task.weekdays) && task.weekdays.length > 0;
+        if (!hasWeekdays || !targetDate) return [];
+
+        const weekday = weekdayFromISO(targetDate);
+        const nextWeekdays = task.weekdays.filter((day) => day !== weekday);
+        if (!nextWeekdays.length) return [];
+
+        const nextStatusByDate = Object.fromEntries(
+          Object.entries(task.statusByDate || {}).filter(([date]) => weekdayFromISO(date) !== weekday)
+        );
+        const nextSubtaskStatusByDate = Object.fromEntries(
+          Object.entries(task.subtaskStatusByDate || {}).filter(([date]) => weekdayFromISO(date) !== weekday)
+        );
+
+        return [{
+          ...task,
+          weekdays: nextWeekdays,
+          statusByDate: nextStatusByDate,
+          subtaskStatusByDate: nextSubtaskStatusByDate,
+        }];
+      });
+
+      return { ...prev, tasks };
+    });
+
+    toast.push(locale === 'EN-US' ? 'Task removed' : 'Tarefa removida');
+  }
   function duplicateTask(task) {
     const copy = normalizeTaskRecord({
       ...task,
@@ -1307,9 +1343,21 @@ function updateState(updater) { setState((prev) => updater(prev)); }
             <div className="task-actions-row">
               <button className="ghost-btn" onClick={() => setTaskStatus(task.id, 'done', targetDate)}>{copy.done}</button>
               <button className="ghost-btn" onClick={() => setTaskStatus(task.id, 'pending', targetDate)}>{copy.pendingBtn}</button>
-              <button className="ghost-btn" onClick={() => { setEditingTask(task); setShowTaskModal(true); }}><Pencil size={14} /> {copy.edit}</button>
-              <button className="ghost-btn" onClick={() => duplicateTask(task)}>{copy.duplicate}</button>
-              <button className="danger-btn" onClick={() => removeTask(task.id)}><Trash2 size={14} /> {copy.delete}</button>
+              <button
+                className="ghost-btn action-btn"
+                onClick={() => {
+                  setEditingTask(getBaseTaskById(task.id) || task);
+                  setShowTaskModal(true);
+                }}
+              >
+                <Pencil size={14} /> <span>{copy.edit}</span>
+              </button>
+              <button className="ghost-btn action-btn" onClick={() => duplicateTask(getBaseTaskById(task.id) || task)}>
+                <Copy size={14} /> <span>{copy.duplicate}</span>
+              </button>
+              <button className="danger-btn action-btn" onClick={() => removeTask(task.id, targetDate)}>
+                <Trash2 size={14} /> <span>{copy.delete}</span>
+              </button>
             </div>
           </div>
         </div>

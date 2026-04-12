@@ -632,7 +632,7 @@ select option { background: #111827; color: #f8fafc; }
   justify-content: center;
   align-items: center;
   padding: 24px;
-  overflow-y: auto;
+  overflow: hidden;
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
 }
@@ -674,8 +674,8 @@ select option { background: #111827; color: #f8fafc; }
 
 .modal-backdrop::-webkit-scrollbar,
 .modal-card::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
+  width: 8px;
+  height: 8px;
 }
 
 .modal-backdrop::-webkit-scrollbar-track,
@@ -1205,4 +1205,60 @@ input[type='checkbox'] { width: 18px; height: 18px; accent-color: var(--primary)
 
 .confirm-modal-actions {
   margin-top: 4px;
+}
+
+
+/* ── MOBILE POLISH / ROTINA ───────────────────────────────────── */
+.action-btn span { display: inline; }
+
+@media (max-width: 640px) {
+  .app-frame { padding: 10px; gap: 12px; }
+  .main-zone { gap: 12px; }
+  .topbar { padding: 14px; }
+  .topbar h1 { font-size: 24px; }
+  .topbar-date { font-size: 12px; }
+  .section-card { padding: 14px; }
+  .section-title { font-size: 18px; }
+  .section-subtitle, .row-sub, .task-card-meta, .goal-sub, .metric-label { font-size: 12px; }
+  .hero-card { padding: 16px; gap: 14px; }
+  .hero-card h2 { font-size: 28px; }
+  .metric-card { padding: 12px; }
+  .metric-value { font-size: 24px; }
+  .task-card-body { padding: 14px; gap: 10px; }
+  .task-card-title { font-size: 16px; }
+  .task-actions-row {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+  .task-actions-row .ghost-btn,
+  .task-actions-row .danger-btn,
+  .task-actions-row .primary-btn {
+    width: 100%;
+    min-width: 0;
+    padding: 10px 12px;
+    font-size: 14px;
+  }
+  .task-actions-row .action-btn {
+    justify-content: center;
+    gap: 0;
+  }
+  .task-actions-row .action-btn span {
+    display: none;
+  }
+  .task-check, .icon-btn { width: 34px; height: 34px; }
+  .subtask-item { padding: 10px; }
+  .toolbar-row { gap: 10px; }
+  .search-box { padding: 0 12px; }
+  .mobile-nav { margin: 0 8px 8px; }
+  .mobile-btn { font-size: 10px; gap: 4px; }
+  .modal-card {
+    padding: 16px;
+    max-height: calc(100dvh - 16px);
+  }
+  .modal-card .form-grid { grid-template-columns: 1fr; gap: 14px; }
+  .modal-card .section-head-row {
+    flex-direction: row;
+    align-items: flex-start;
+  }
 }
