@@ -1616,7 +1616,7 @@ if (page === 'stats') {
         <aside className="sidebar glass">
           <div className="brand-box">
             <div className="brand-mark brand-mark-image">
-              <img src="/logo-sidebar.png" alt="Disciplina Total" className="brand-logo-img" />
+              <img src={`${import.meta.env.BASE_URL}logo-sidebar.png`} alt="Disciplina Total" className="brand-logo-img" />
             </div>
             <div>
               <div className="brand-title">Disciplina Total</div>
