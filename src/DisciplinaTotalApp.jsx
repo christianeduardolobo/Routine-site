@@ -983,13 +983,26 @@ function updateState(updater) { setState((prev) => updater(prev)); }
     toast.push(status === 'done' ? 'Tarefa concluída' : 'Status atualizado');
   }
 
-  function toggleSubtask(taskId, subtaskId) {
+  function toggleSubtask(taskId, subtaskId, targetDate = todayISO()) {
     updateState((prev) => ({
       ...prev,
       tasks: prev.tasks.map((t) => {
         if (t.id !== taskId) return t;
         const subtasks = (t.subtasks || []).map((s) => (s.id === subtaskId ? { ...s, done: !s.done } : s));
         const allDone = subtasks.length > 0 && subtasks.every((s) => s.done);
+        const hasWeekdays = Array.isArray(t.weekdays) && t.weekdays.length > 0;
+
+        if (hasWeekdays) {
+          return {
+            ...t,
+            subtasks,
+            statusByDate: {
+              ...(t.statusByDate || {}),
+              [targetDate]: allDone ? 'done' : 'pending',
+            },
+          };
+        }
+
         return { ...t, subtasks, status: allDone ? 'done' : t.status === 'done' ? 'pending' : t.status };
       }),
     }));
@@ -1179,7 +1192,7 @@ function updateState(updater) { setState((prev) => updater(prev)); }
               <div className="subtask-list">
                 {task.subtasks.map((s) => (
                   <div key={s.id} className="subtask-item">
-                    <button type="button" className={cls('subtask-toggle', s.done && 'done')} onClick={() => toggleSubtask(task.id, s.id)}>{s.done ? '✓' : ''}</button>
+                    <button type="button" className={cls('subtask-toggle', s.done && 'done')} onClick={() => toggleSubtask(task.id, s.id, targetDate)}>{s.done ? '✓' : ''}</button>
                     <span className={cls(s.done && 'done')}>{s.title}</span>
                   </div>
                 ))}
