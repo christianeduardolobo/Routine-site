@@ -632,7 +632,7 @@ select option { background: #111827; color: #f8fafc; }
   justify-content: center;
   align-items: center;
   padding: 24px;
-  overflow: hidden;
+  overflow-y: auto;
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
 }
@@ -657,59 +657,6 @@ select option { background: #111827; color: #f8fafc; }
     padding: 18px;
     border-radius: 20px;
   }
-}
-
-
-.modal-backdrop,
-.modal-card {
-  scrollbar-width: thin;
-  scrollbar-color: rgba(255,255,255,0.22) transparent;
-  scrollbar-gutter: stable;
-}
-
-.discipline-app.light .modal-backdrop,
-.discipline-app.light .modal-card {
-  scrollbar-color: rgba(15,23,42,0.28) transparent;
-}
-
-.modal-backdrop::-webkit-scrollbar,
-.modal-card::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
-}
-
-.modal-backdrop::-webkit-scrollbar-track,
-.modal-card::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.modal-backdrop::-webkit-scrollbar-thumb,
-.modal-card::-webkit-scrollbar-thumb {
-  background: rgba(255,255,255,0.18);
-  border-radius: 999px;
-  border: 2px solid transparent;
-  background-clip: padding-box;
-}
-
-.modal-backdrop::-webkit-scrollbar-thumb:hover,
-.modal-card::-webkit-scrollbar-thumb:hover {
-  background: rgba(255,255,255,0.28);
-  border: 2px solid transparent;
-  background-clip: padding-box;
-}
-
-.discipline-app.light .modal-backdrop::-webkit-scrollbar-thumb,
-.discipline-app.light .modal-card::-webkit-scrollbar-thumb {
-  background: rgba(15,23,42,0.18);
-  border: 2px solid transparent;
-  background-clip: padding-box;
-}
-
-.discipline-app.light .modal-backdrop::-webkit-scrollbar-thumb:hover,
-.discipline-app.light .modal-card::-webkit-scrollbar-thumb:hover {
-  background: rgba(15,23,42,0.28);
-  border: 2px solid transparent;
-  background-clip: padding-box;
 }
 
 /* ── TOAST ──────────────────────────────────────────────────────── */
@@ -1208,57 +1155,79 @@ input[type='checkbox'] { width: 18px; height: 18px; accent-color: var(--primary)
 }
 
 
-/* ── MOBILE POLISH / ROTINA ───────────────────────────────────── */
-.action-btn span { display: inline; }
-
+/* ── POMODORO MOBILE TUNING ────────────────────────────────────── */
 @media (max-width: 640px) {
-  .app-frame { padding: 10px; gap: 12px; }
-  .main-zone { gap: 12px; }
-  .topbar { padding: 14px; }
-  .topbar h1 { font-size: 24px; }
-  .topbar-date { font-size: 12px; }
-  .section-card { padding: 14px; }
-  .section-title { font-size: 18px; }
-  .section-subtitle, .row-sub, .task-card-meta, .goal-sub, .metric-label { font-size: 12px; }
-  .hero-card { padding: 16px; gap: 14px; }
-  .hero-card h2 { font-size: 28px; }
-  .metric-card { padding: 12px; }
-  .metric-value { font-size: 24px; }
-  .task-card-body { padding: 14px; gap: 10px; }
-  .task-card-title { font-size: 16px; }
-  .task-actions-row {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 8px;
+  .pomodoro-main-card {
+    padding: 14px;
+    gap: 14px;
   }
-  .task-actions-row .ghost-btn,
-  .task-actions-row .danger-btn,
-  .task-actions-row .primary-btn {
-    width: 100%;
-    min-width: 0;
+
+  .pomodoro-main-top.compact-top {
+    gap: 10px;
+  }
+
+  .pomodoro-time {
+    font-size: 38px;
+    line-height: 1;
+  }
+
+  .pomodoro-subline {
+    font-size: 12px;
+    line-height: 1.45;
+  }
+
+  .pomodoro-mode-badges {
+    gap: 6px;
+  }
+
+  .pomodoro-mode-badges .pill,
+  .pomodoro-info-toggle,
+  .pomodoro-actions .ghost-btn,
+  .pomodoro-actions .primary-btn {
+    font-size: 13px;
+  }
+
+  .pomodoro-actions.stretch > * {
+    flex: 1 1 calc(50% - 8px);
+    min-height: 44px;
     padding: 10px 12px;
-    font-size: 14px;
   }
-  .task-actions-row .action-btn {
-    justify-content: center;
-    gap: 0;
+
+  .pomodoro-config-grid.main-grid {
+    grid-template-columns: 1fr;
+    gap: 10px;
   }
-  .task-actions-row .action-btn span {
-    display: none;
+
+  .pomodoro-sound-row,
+  .pomodoro-save-grid,
+  .saved-url-actions,
+  .pomodoro-links {
+    grid-template-columns: 1fr;
+    flex-direction: column;
   }
-  .task-check, .icon-btn { width: 34px; height: 34px; }
-  .subtask-item { padding: 10px; }
-  .toolbar-row { gap: 10px; }
-  .search-box { padding: 0 12px; }
-  .mobile-nav { margin: 0 8px 8px; }
-  .mobile-btn { font-size: 10px; gap: 4px; }
-  .modal-card {
-    padding: 16px;
-    max-height: calc(100dvh - 16px);
+
+  .saved-url-card.compact-card {
+    gap: 10px;
   }
-  .modal-card .form-grid { grid-template-columns: 1fr; gap: 14px; }
-  .modal-card .section-head-row {
-    flex-direction: row;
-    align-items: flex-start;
+
+  .section-title.small {
+    font-size: 16px;
+  }
+
+  .pomodoro-main-card .icon-btn,
+  .pomodoro-main-card .ghost-btn.compact,
+  .pomodoro-main-card .danger-btn.compact.round {
+    width: 36px;
+    height: 36px;
+    min-height: 36px;
+    padding: 0;
+  }
+
+  .pomodoro-main-card .icon-btn svg,
+  .pomodoro-main-card .ghost-btn svg,
+  .pomodoro-main-card .danger-btn svg,
+  .pomodoro-main-card .primary-btn svg {
+    width: 14px;
+    height: 14px;
   }
 }

@@ -18,15 +18,21 @@ const INDEXED_DB_VERSION = 1;
 const INDEXED_DB_STORE = 'app_state';
 const SNAKE_IMG_SRC = `${import.meta.env.BASE_URL}ouroboros.png`;
 
-const todayISO = () => new Date().toISOString().slice(0, 10);
+const toLocalISO = (date = new Date()) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+const todayISO = () => toLocalISO(new Date());
 const uid = () => Math.random().toString(36).slice(2, 9);
 const formatFullDate = (date = new Date(), locale = 'PT-BR') =>
   new Intl.DateTimeFormat(locale, { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' }).format(date);
-const formatShort = (date, locale = 'PT-BR') => new Intl.DateTimeFormat(locale, { day: '2-digit', month: 'short' }).format(new Date(date + 'T00:00:00'));
+const formatShort = (date, locale = 'PT-BR') => new Intl.DateTimeFormat(locale, { day: '2-digit', month: 'short' }).format(new Date(`${date}T12:00:00`));
 const offsetDate = (date, amount) => {
-  const d = new Date(date + 'T00:00:00');
+  const d = new Date(`${date}T12:00:00`);
   d.setDate(d.getDate() + amount);
-  return d.toISOString().slice(0, 10);
+  return toLocalISO(d);
 };
 const percentage = (n) => Math.max(0, Math.min(100, Math.round(n)));
 
@@ -37,7 +43,7 @@ const WEEKDAY_SHORT = {
 };
 
 function weekdayFromISO(date) {
-  return new Date(`${date}T00:00:00`).getDay();
+  return new Date(`${date}T12:00:00`).getDay();
 }
 
 function taskMatchesDate(task, date) {
@@ -670,6 +676,15 @@ function useToast() {
   return { items, push };
 }
 
+function getPomodoroSecondsForMode(mode, settings = {}) {
+  const focus = Math.max(1, Number(settings.pomodoroFocusMin || 25));
+  const shortBreak = Math.max(1, Number(settings.pomodoroShortBreakMin || 5));
+  const longBreak = Math.max(1, Number(settings.pomodoroLongBreakMin || 15));
+  if (mode === 'long') return longBreak * 60;
+  if (mode === 'short') return shortBreak * 60;
+  return focus * 60;
+}
+
 
 // ── OUROBOROS RING ───────────────────────────────────────────────────
 function OuroborosRing({ value, tone }) {
@@ -902,7 +917,7 @@ export default function DisciplinaTotalApp() {
   const [showHabitModal, setShowHabitModal] = useState(false);
   const [showResetModal, setShowResetModal] = useState(false);
   const [editingHabit, setEditingHabit] = useState(null);
-  const [pomodoro, setPomodoro] = useState(25 * 60);
+  const [pomodoro, setPomodoro] = useState(sampleState().settings.pomodoroFocusMin * 60);
   const [pomodoroRunning, setPomodoroRunning] = useState(false);
   const [pomodoroMode, setPomodoroMode] = useState('focus');
   const [pomodoroInfoOpen, setPomodoroInfoOpen] = useState(false);
@@ -955,8 +970,16 @@ export default function DisciplinaTotalApp() {
   }, [pomodoroRunning, pomodoroMode]);
 
   useEffect(() => {
-    if (!pomodoroRunning) setPomodoro((prev) => (prev > 0 ? prev : (state.settings.pomodoroFocusMin || 25) * 60));
-  }, [state.settings.pomodoroFocusMin]);
+    if (!storageReady || pomodoroRunning) return;
+    setPomodoro(getPomodoroSecondsForMode(pomodoroMode, state.settings));
+  }, [
+    storageReady,
+    pomodoroMode,
+    pomodoroRunning,
+    state.settings.pomodoroFocusMin,
+    state.settings.pomodoroShortBreakMin,
+    state.settings.pomodoroLongBreakMin,
+  ]);
 
   const usingImageBackground = !!state.appearance.backgroundImage;
   const isLight = state.appearance.themeMode === 'light';
@@ -1322,12 +1345,10 @@ function updateState(updater) { setState((prev) => updater(prev)); }
   }
 
   function applyPomodoroLength(kind) {
-    const focus = Math.max(1, Number(state.settings.pomodoroFocusMin || 25));
-    const shortBreak = Math.max(1, Number(state.settings.pomodoroShortBreakMin || 5));
-    const longBreak = Math.max(1, Number(state.settings.pomodoroLongBreakMin || 15));
-    const seconds = kind === 'focus' ? focus * 60 : kind === 'short' ? shortBreak * 60 : longBreak * 60;
-    setPomodoroMode(kind === 'focus' ? 'focus' : 'break');
-    setPomodoroRunning(false); setPomodoro(seconds);
+    const nextMode = kind === 'focus' ? 'focus' : kind;
+    setPomodoroMode(nextMode);
+    setPomodoroRunning(false);
+    setPomodoro(getPomodoroSecondsForMode(nextMode, state.settings));
   }
 
   function pomodoroNextBreakLabel() {
