@@ -170,6 +170,22 @@ function buildPersistedState(base, parsed) {
   };
 }
 
+function mergeExternalStatePreservingData(current, incoming) {
+  const parsed = incoming || {};
+  const merged = buildPersistedState(current, parsed);
+
+  return {
+    ...merged,
+    tasks: Array.isArray(parsed.tasks) ? (parsed.tasks.length ? parsed.tasks : current.tasks) : current.tasks,
+    habits: Array.isArray(parsed.habits) ? (parsed.habits.length ? parsed.habits : current.habits) : current.habits,
+    history: Array.isArray(parsed.history) ? parsed.history : current.history,
+    reflections:
+      parsed.reflections && Object.keys(parsed.reflections).length
+        ? { ...current.reflections, ...parsed.reflections }
+        : current.reflections,
+  };
+}
+
 function supportsIndexedDB() {
   return typeof window !== 'undefined' && !!window.indexedDB;
 }
@@ -332,6 +348,16 @@ const UI_COPY = {
     resetAllDescription: 'Isso vai apagar todas as tarefas, hábitos, histórico, metas, reflexões e configurações salvas. Essa ação é sensível e não pode ser desfeita.',
     confirmReset: 'Confirmar reset',
     resetDone: 'Tudo foi resetado',
+    resetStatsData: 'Resetar estatísticas',
+    resetStatsTitle: 'Resetar estatísticas?',
+    resetStatsDescription: 'Isso limpa histórico e reflexões acumuladas, mas mantém tarefas, hábitos e configurações.',
+    cloudSync: 'Sincronização em nuvem',
+    cloudSyncSub: 'Use o mesmo código no PC e no iPhone.',
+    syncCode: 'Código de sincronização',
+    syncCodePlaceholder: 'Ex.: disciplina-total-jose-2026',
+    pushCloud: 'Enviar para nuvem',
+    pullCloud: 'Baixar da nuvem',
+    cloudNotConfigured: 'A sincronização em nuvem ainda não está configurada neste projeto.',
     weeklyGoals: 'Metas da semana',
     onePerLine: 'Uma por linha.',
     fullHistory: 'Histórico completo',
@@ -406,6 +432,16 @@ const UI_COPY = {
     resetAllDescription: 'This will erase all tasks, habits, history, goals, reflections and saved settings. This is a sensitive action and cannot be undone.',
     confirmReset: 'Confirm reset',
     resetDone: 'Everything was reset',
+    resetStatsData: 'Reset statistics',
+    resetStatsTitle: 'Reset statistics?',
+    resetStatsDescription: 'This clears accumulated history and reflections, but keeps tasks, habits, and settings.',
+    cloudSync: 'Cloud sync',
+    cloudSyncSub: 'Use the same code on PC and iPhone.',
+    syncCode: 'Sync code',
+    syncCodePlaceholder: 'Ex.: disciplina-total-jose-2026',
+    pushCloud: 'Upload to cloud',
+    pullCloud: 'Download from cloud',
+    cloudNotConfigured: 'Cloud sync is not configured in this project yet.',
     weeklyGoals: 'Weekly goals',
     onePerLine: 'One per line.',
     fullHistory: 'Full history',
@@ -736,6 +772,7 @@ export default function DisciplinaTotalApp() {
   const [editingTask, setEditingTask] = useState(null);
   const [showHabitModal, setShowHabitModal] = useState(false);
   const [showResetModal, setShowResetModal] = useState(false);
+  const [showResetStatsModal, setShowResetStatsModal] = useState(false);
   const [editingHabit, setEditingHabit] = useState(null);
   const [pomodoro, setPomodoro] = useState(25 * 60);
   const [pomodoroRunning, setPomodoroRunning] = useState(false);
@@ -801,8 +838,7 @@ export default function DisciplinaTotalApp() {
         return;
       }
 
-      const merged = buildPersistedState(sampleState(), cloudData.state);
-      setState(merged);
+      setState((prev) => mergeExternalStatePreservingData(prev, cloudData.state));
       toast.push(
         locale === 'EN-US' ? 'Loaded from cloud successfully' : 'Carregado da nuvem com sucesso'
       );
@@ -1042,8 +1078,13 @@ function updateState(updater) { setState((prev) => updater(prev)); }
   function importData(file) {
     const reader = new FileReader();
     reader.onload = () => {
-      try { const parsed = JSON.parse(String(reader.result)); setState(parsed); toast.push(locale === 'EN-US' ? 'Backup imported' : 'Backup importado'); }
-      catch { toast.push(locale === 'EN-US' ? 'Invalid file' : 'Arquivo inválido'); }
+      try {
+        const parsed = JSON.parse(String(reader.result));
+        setState((prev) => mergeExternalStatePreservingData(prev, parsed));
+        toast.push(locale === 'EN-US' ? 'Backup imported' : 'Backup importado');
+      } catch {
+        toast.push(locale === 'EN-US' ? 'Invalid file' : 'Arquivo inválido');
+      }
     };
     reader.readAsText(file);
   }
@@ -1052,6 +1093,16 @@ function updateState(updater) { setState((prev) => updater(prev)); }
     setState(emptyState());
     setShowResetModal(false);
     toast.push(copy.resetDone);
+  }
+
+  function resetStatistics() {
+    updateState((prev) => ({
+      ...prev,
+      history: [],
+      reflections: {},
+    }));
+    setShowResetStatsModal(false);
+    toast.push(copy.resetStatsData);
   }
 
   function applyBackgroundFile(file) {
@@ -1602,92 +1653,98 @@ if (page === 'stats') {
 
     // Settings
     return (
-      <div className="split-2 settings-layout">
-        <section className="glass section-card">
-          <SectionHeader title={copy.profileAndGoals} subtitle={copy.profileAndGoalsSub} />
-          <div className="form-grid">
-            <Field label={copy.yourName}><input value={state.settings.userName} onChange={(e) => updateState((prev) => ({ ...prev, settings: { ...prev.settings, userName: e.target.value } }))} /></Field>
-            <Field label={copy.interfaceLanguage}><select value={state.settings.locale || 'PT-BR'} onChange={(e) => updateState((prev) => ({ ...prev, settings: { ...prev.settings, locale: e.target.value } }))}><option value="PT-BR">PT-BR</option><option value="EN-US">EN-US</option></select></Field>
-            <NumberField label={copy.dailyGoalPercent} value={state.settings.dailyGoal} onCommit={(value) => updateState((prev) => ({ ...prev, settings: { ...prev.settings, dailyGoal: value } }))} />
-            <NumberField label={copy.weeklyGoalPercent} value={state.settings.weeklyGoal} onCommit={(value) => updateState((prev) => ({ ...prev, settings: { ...prev.settings, weeklyGoal: value } }))} />
+      <div className="split-2 settings-layout" style={{ alignItems: 'start', gridTemplateColumns: 'minmax(0,1fr) minmax(0,1fr)' }}>
+        <section className="glass section-card" style={{ display: 'grid', gap: 18, alignContent: 'start', minWidth: 0 }}>
+          <div>
+            <SectionHeader title={copy.profileAndGoals} subtitle={copy.profileAndGoalsSub} />
+            <div className="form-grid">
+              <Field label={copy.yourName}><input value={state.settings.userName} onChange={(e) => updateState((prev) => ({ ...prev, settings: { ...prev.settings, userName: e.target.value } }))} /></Field>
+              <Field label={copy.interfaceLanguage}><select value={state.settings.locale || 'PT-BR'} onChange={(e) => updateState((prev) => ({ ...prev, settings: { ...prev.settings, locale: e.target.value } }))}><option value="PT-BR">PT-BR</option><option value="EN-US">EN-US</option></select></Field>
+              <NumberField label={copy.dailyGoalPercent} value={state.settings.dailyGoal} onCommit={(value) => updateState((prev) => ({ ...prev, settings: { ...prev.settings, dailyGoal: value } }))} />
+              <NumberField label={copy.weeklyGoalPercent} value={state.settings.weeklyGoal} onCommit={(value) => updateState((prev) => ({ ...prev, settings: { ...prev.settings, weeklyGoal: value } }))} />
+            </div>
           </div>
-          <SectionHeader title={copy.themeBackground} subtitle={copy.themeBackgroundSub} />
-          <div className="stack small-gap">
-            <div className="theme-toggle-row">
-              <button className={cls('theme-chip', state.appearance.themeMode === 'dark' && 'active')} onClick={() => updateState((prev) => ({ ...prev, appearance: { ...prev.appearance, themeMode: 'dark' } }))}>{copy.dark}</button>
-              <button className={cls('theme-chip', state.appearance.themeMode === 'light' && 'active')} onClick={() => updateState((prev) => ({ ...prev, appearance: { ...prev.appearance, themeMode: 'light' } }))}>{copy.light}</button>
-            </div>
-            <div className="upload-row">
-              <button className="ghost-btn" onClick={() => bgUploadRef.current?.click()}><Upload size={16} /> {copy.uploadImage}</button>
-              <input ref={bgUploadRef} type="file" accept="image/*" hidden onChange={(e) => e.target.files?.[0] && applyBackgroundFile(e.target.files[0])} />
-              <button className="ghost-btn" onClick={clearBackgroundImage}>{copy.removeImage}</button>
-            </div>
-            <div className="quick-add">
-              <input value={state.appearance.backgroundUrl || ''} onChange={(e) => updateState((prev) => ({ ...prev, appearance: { ...prev.appearance, backgroundUrl: e.target.value } }))} placeholder={copy.imageUrlPlaceholder} />
-              <button className="primary-btn" onClick={applyBackgroundUrl}>{copy.applyUrl}</button>
-            </div>
-            <div className="form-grid compact-grid">
-              <Field label={copy.size}>
-                <select value={state.appearance.backgroundSize || 'cover'} onChange={(e) => updateState((prev) => ({ ...prev, appearance: { ...prev.appearance, backgroundSize: e.target.value } }))}>
-                  <option value="cover">{copy.cover}</option><option value="contain">{copy.contain}</option><option value="auto">{copy.auto}</option>
-                </select>
-              </Field>
-              <Field label={copy.position}>
-                <select value={state.appearance.backgroundPosition || 'center'} onChange={(e) => updateState((prev) => ({ ...prev, appearance: { ...prev.appearance, backgroundPosition: e.target.value } }))}>
-                  <option value="center">{copy.center}</option><option value="top">{copy.top}</option><option value="bottom">{copy.bottom}</option><option value="left">{copy.left}</option><option value="right">{copy.right}</option>
-                </select>
-              </Field>
+
+          <div>
+            <SectionHeader title={copy.themeBackground} subtitle={copy.themeBackgroundSub} />
+            <div className="stack small-gap">
+              <div className="theme-toggle-row">
+                <button className={cls('theme-chip', state.appearance.themeMode === 'dark' && 'active')} onClick={() => updateState((prev) => ({ ...prev, appearance: { ...prev.appearance, themeMode: 'dark' } }))}>{copy.dark}</button>
+                <button className={cls('theme-chip', state.appearance.themeMode === 'light' && 'active')} onClick={() => updateState((prev) => ({ ...prev, appearance: { ...prev.appearance, themeMode: 'light' } }))}>{copy.light}</button>
+              </div>
+              <div className="upload-row">
+                <button className="ghost-btn" onClick={() => bgUploadRef.current?.click()}><Upload size={16} /> {copy.uploadImage}</button>
+                <input ref={bgUploadRef} type="file" accept="image/*" hidden onChange={(e) => e.target.files?.[0] && applyBackgroundFile(e.target.files[0])} />
+                <button className="ghost-btn" onClick={clearBackgroundImage}>{copy.removeImage}</button>
+              </div>
+              <div className="quick-add">
+                <input value={state.appearance.backgroundUrl || ''} onChange={(e) => updateState((prev) => ({ ...prev, appearance: { ...prev.appearance, backgroundUrl: e.target.value } }))} placeholder={copy.imageUrlPlaceholder} />
+                <button className="primary-btn" onClick={applyBackgroundUrl}>{copy.applyUrl}</button>
+              </div>
+              <div className="form-grid compact-grid">
+                <Field label={copy.size}>
+                  <select value={state.appearance.backgroundSize || 'cover'} onChange={(e) => updateState((prev) => ({ ...prev, appearance: { ...prev.appearance, backgroundSize: e.target.value } }))}>
+                    <option value="cover">{copy.cover}</option><option value="contain">{copy.contain}</option><option value="auto">{copy.auto}</option>
+                  </select>
+                </Field>
+                <Field label={copy.position}>
+                  <select value={state.appearance.backgroundPosition || 'center'} onChange={(e) => updateState((prev) => ({ ...prev, appearance: { ...prev.appearance, backgroundPosition: e.target.value } }))}>
+                    <option value="center">{copy.center}</option><option value="top">{copy.top}</option><option value="bottom">{copy.bottom}</option><option value="left">{copy.left}</option><option value="right">{copy.right}</option>
+                  </select>
+                </Field>
+              </div>
             </div>
           </div>
         </section>
-        <section className="glass section-card">
-          <SectionHeader title={copy.backupData} subtitle={copy.backupDataSub} />
-          <div className="stack">
-            <button className="ghost-btn" onClick={exportData}><Download size={16} /> {copy.exportJson}</button>
-            <button className="ghost-btn" onClick={() => fileRef.current?.click()}><Upload size={16} /> {copy.importJson}</button>
-            <input ref={fileRef} type="file" accept="application/json" hidden onChange={(e) => e.target.files?.[0] && importData(e.target.files[0])} />
-            <button className="danger-btn" onClick={() => setShowResetModal(true)}><Trash2 size={16} /> {copy.resetAllData}</button>
-          </div>
 
-          <SectionHeader
-            title={locale === 'EN-US' ? 'Cloud sync' : 'Sincronização em nuvem'}
-            subtitle={locale === 'EN-US' ? 'Use the same code on PC and iPhone.' : 'Use o mesmo código no PC e no iPhone.'}
-          />
-
-          <div className="stack">
-            <input
-              value={syncKey}
-              onChange={(e) => setSyncKey(e.target.value)}
-              placeholder={locale === 'EN-US' ? 'Sync code' : 'Código de sincronização'}
-            />
-
-            <div className="toolbar-row">
-              <button className="ghost-btn" onClick={handleCloudUpload} disabled={cloudSyncBusy}>
-                <Upload size={16} /> {locale === 'EN-US' ? 'Send to cloud' : 'Enviar para nuvem'}
-              </button>
-
-              <button className="ghost-btn" onClick={handleCloudDownload} disabled={cloudSyncBusy}>
-                <Download size={16} /> {locale === 'EN-US' ? 'Load from cloud' : 'Baixar da nuvem'}
-              </button>
+        <section className="glass section-card" style={{ display: 'grid', gap: 18, alignContent: 'start', minWidth: 0 }}>
+          <div>
+            <SectionHeader title={copy.backupData} subtitle={copy.backupDataSub} />
+            <div className="stack" style={{ gap: 12 }}>
+              <button className="ghost-btn" onClick={exportData}><Download size={16} /> {copy.exportJson}</button>
+              <button className="ghost-btn" onClick={() => fileRef.current?.click()}><Upload size={16} /> {copy.importJson}</button>
+              <input ref={fileRef} type="file" accept="application/json" hidden onChange={(e) => e.target.files?.[0] && importData(e.target.files[0])} />
+              <button className="ghost-btn" onClick={() => setShowResetStatsModal(true)}><BarChart3 size={16} /> {copy.resetStatsData}</button>
+              <button className="danger-btn" onClick={() => setShowResetModal(true)}><Trash2 size={16} /> {copy.resetAllData}</button>
             </div>
           </div>
 
-          <SectionHeader title={copy.weeklyGoals} subtitle={copy.onePerLine} />
-          <textarea
-            className="weekly-goals-textarea"
-            value={weeklyGoalsDraft}
-            onChange={(e) => setWeeklyGoalsDraft(e.target.value)}
-            onBlur={() => updateState((prev) => ({ ...prev, settings: { ...prev.settings, weeklyGoals: weeklyGoalsDraft.split('\n').map((line) => line.trim()).filter(Boolean) } }))}
-            onKeyDown={(e) => {
-              if (e.key === 'Tab') {
-                e.preventDefault();
-                const target = e.currentTarget;
-                const nextValue = insertNewLineValue(target.value, target.selectionStart, target.selectionEnd);
-                setWeeklyGoalsDraft(nextValue);
-                requestAnimationFrame(() => { target.selectionStart = target.selectionEnd = (target.selectionStart || 0) + 1; });
-              }
-            }}
-          />
+          <div className="glass-inner" style={{ padding: 16, display: 'grid', gap: 12 }}>
+            <SectionHeader title={copy.cloudSync} subtitle={copy.cloudSyncSub} />
+            <input
+              value={syncKey}
+              onChange={(e) => setSyncKey(e.target.value)}
+              placeholder={copy.syncCodePlaceholder || copy.syncCode}
+            />
+            <div className="task-actions-row" style={{ marginTop: 0 }}>
+              <button className="ghost-btn" onClick={handleCloudUpload} disabled={cloudSyncBusy}><Upload size={16} /> {copy.pushCloud}</button>
+              <button className="ghost-btn" onClick={handleCloudDownload} disabled={cloudSyncBusy}><Download size={16} /> {copy.pullCloud}</button>
+            </div>
+            {!isCloudSyncConfigured() && (
+              <div className="helper-card">
+                <small>{copy.cloudNotConfigured}</small>
+              </div>
+            )}
+          </div>
+
+          <div>
+            <SectionHeader title={copy.weeklyGoals} subtitle={copy.onePerLine} />
+            <textarea
+              className="weekly-goals-textarea"
+              value={weeklyGoalsDraft}
+              onChange={(e) => setWeeklyGoalsDraft(e.target.value)}
+              onBlur={() => updateState((prev) => ({ ...prev, settings: { ...prev.settings, weeklyGoals: weeklyGoalsDraft.split('\n').map((line) => line.trim()).filter(Boolean) } }))}
+              onKeyDown={(e) => {
+                if (e.key === 'Tab') {
+                  e.preventDefault();
+                  const target = e.currentTarget;
+                  const nextValue = insertNewLineValue(target.value, target.selectionStart, target.selectionEnd);
+                  setWeeklyGoalsDraft(nextValue);
+                  requestAnimationFrame(() => { target.selectionStart = target.selectionEnd = (target.selectionStart || 0) + 1; });
+                }
+              }}
+            />
+          </div>
         </section>
       </div>
     );
@@ -1794,6 +1851,16 @@ if (page === 'stats') {
         cancelLabel={copy.cancel}
         onClose={() => setShowResetModal(false)}
         onConfirm={resetAll}
+      />
+      <ResetConfirmModal
+        open={showResetStatsModal}
+        locale={locale}
+        title={copy.resetStatsTitle}
+        description={copy.resetStatsDescription}
+        confirmLabel={copy.confirmReset}
+        cancelLabel={copy.cancel}
+        onClose={() => setShowResetStatsModal(false)}
+        onConfirm={resetStatistics}
       />
       <ToastLayer items={toast.items} />
     </div>
