@@ -231,6 +231,7 @@ function sampleState() {
       categories: ['saúde', 'espiritualidade', 'estudo', 'trabalho', 'pessoal', 'financeiro'],
       pomodoroFocusMin: 25, pomodoroShortBreakMin: 5, pomodoroLongBreakMin: 15,
       pomodoroCyclesBeforeLongBreak: 4, pomodoroSelectedSoundKey: 'white', pomodoroSavedSounds: [],
+      cloudSyncKey: '', cloudAutoSync: false,
     },
     appearance: {
       primary: '#60a5fa', accent: '#c084fc', themeMode: 'dark',
@@ -257,6 +258,8 @@ function emptyState() {
       weeklyGoals: [],
       pomodoroSelectedSoundKey: 'white',
       pomodoroSavedSounds: [],
+      cloudSyncKey: '',
+      cloudAutoSync: false,
     },
     appearance: {
       ...base.appearance,
@@ -490,6 +493,23 @@ const UI_COPY = {
     critical: 'Crítica',
     taskDone: 'concluída',
     taskPending: 'pendente',
+    resetStatsData: 'Resetar estatísticas',
+    resetStatsTitle: 'Resetar estatísticas?',
+    resetStatsDescription: 'Isso limpa histórico e reflexões acumuladas, mas mantém tarefas, hábitos e configurações.',
+    resetPastProgress: 'Resetar dias passados',
+    resetPastProgressTitle: 'Resetar progresso passado?',
+    resetPastProgressDescription: 'Isso apaga marcações antigas dos dias anteriores, limpa logs antigos de hábitos e remove tarefas pontuais já vencidas. Hoje e futuro permanecem.',
+    cloudSync: 'Sincronização entre PC e celular',
+    cloudSyncSub: 'Use o mesmo código de sincronização nos dois aparelhos para espelhar seus dados.',
+    syncCode: 'Código de sincronização',
+    syncCodePlaceholder: 'Ex.: disciplina-total-jose-2026',
+    autoSync: 'Sincronização automática',
+    pushCloud: 'Enviar para nuvem',
+    pullCloud: 'Baixar da nuvem',
+    cloudNotConfigured: 'Nuvem ainda não configurada no projeto.',
+    cloudLastSync: 'Última sincronização',
+    noCloudData: 'Nada salvo na nuvem ainda.',
+    cloudSetupHint: 'Configure o Supabase para sincronizar PC e celular.',
   },
   'EN-US': {
     brandSubtitle: 'Control, progress and consistency',
@@ -564,6 +584,23 @@ const UI_COPY = {
     critical: 'Critical',
     taskDone: 'done',
     taskPending: 'pending',
+    resetStatsData: 'Reset statistics',
+    resetStatsTitle: 'Reset statistics?',
+    resetStatsDescription: 'This clears accumulated history and reflections, but keeps tasks, habits, and settings.',
+    resetPastProgress: 'Reset past days',
+    resetPastProgressTitle: 'Reset past progress?',
+    resetPastProgressDescription: 'This removes old day markings, clears old habit logs, and removes expired one-off tasks. Today and future stay intact.',
+    cloudSync: 'PC and phone sync',
+    cloudSyncSub: 'Use the same sync code on both devices to mirror your data.',
+    syncCode: 'Sync code',
+    syncCodePlaceholder: 'Ex.: disciplina-total-jose-2026',
+    autoSync: 'Automatic sync',
+    pushCloud: 'Upload to cloud',
+    pullCloud: 'Download from cloud',
+    cloudNotConfigured: 'Cloud sync is not configured in this project yet.',
+    cloudLastSync: 'Last sync',
+    noCloudData: 'Nothing saved in the cloud yet.',
+    cloudSetupHint: 'Configure Supabase to sync PC and phone.',
   },
 };
 
@@ -581,11 +618,13 @@ function categoryLabel(category, locale = 'PT-BR') {
 
 function priorityLabel(priority, locale = 'PT-BR') {
   const copy = getCopy(locale);
+  const cloudConfigured = isCloudSyncConfigured();
   return { baixa: copy.low, média: copy.medium, alta: copy.high, crítica: copy.critical }[priority] || priority;
 }
 
 function statusLabel(status, locale = 'PT-BR') {
   const copy = getCopy(locale);
+  const cloudConfigured = isCloudSyncConfigured();
   return { done: copy.taskDone, pending: copy.taskPending }[status] || status;
 }
 
@@ -659,6 +698,44 @@ function buildFullHistory(state) {
 function getDateRange(lastDays) {
   const end = todayISO();
   return Array.from({ length: lastDays }, (_, idx) => offsetDate(end, -(lastDays - idx - 1)));
+}
+
+function resetStatisticsState(prevState) {
+  return {
+    ...prevState,
+    history: [],
+    reflections: {},
+  };
+}
+
+function resetPastProgressState(prevState, referenceDate = todayISO()) {
+  return {
+    ...prevState,
+    history: [],
+    reflections: {},
+    tasks: (prevState.tasks || [])
+      .filter((task) => {
+        const hasWeekdays = Array.isArray(task.weekdays) && task.weekdays.length > 0;
+        if (hasWeekdays) return true;
+        if (!task.date) return true;
+        return task.date >= referenceDate;
+      })
+      .map((task) => {
+        const hasWeekdays = Array.isArray(task.weekdays) && task.weekdays.length > 0;
+        if (!hasWeekdays) {
+          return task;
+        }
+        return {
+          ...task,
+          statusByDate: Object.fromEntries(Object.entries(task.statusByDate || {}).filter(([date]) => date >= referenceDate)),
+          subtaskStatusByDate: Object.fromEntries(Object.entries(task.subtaskStatusByDate || {}).filter(([date]) => date >= referenceDate)),
+        };
+      }),
+    habits: (prevState.habits || []).map((habit) => ({
+      ...habit,
+      logs: Object.fromEntries(Object.entries(habit.logs || {}).filter(([date]) => date >= referenceDate)),
+    })),
+  };
 }
 
 function cls(...parts) { return parts.filter(Boolean).join(' '); }
@@ -914,6 +991,10 @@ export default function DisciplinaTotalApp() {
   const [editingTask, setEditingTask] = useState(null);
   const [showHabitModal, setShowHabitModal] = useState(false);
   const [showResetModal, setShowResetModal] = useState(false);
+  const [showResetStatsModal, setShowResetStatsModal] = useState(false);
+  const [showResetPastModal, setShowResetPastModal] = useState(false);
+  const [cloudSyncBusy, setCloudSyncBusy] = useState(false);
+  const [cloudLastSyncedAt, setCloudLastSyncedAt] = useState('');
   const [editingHabit, setEditingHabit] = useState(null);
   const [pomodoro, setPomodoro] = useState(sampleState().settings.pomodoroFocusMin * 60);
   const [pomodoroRunning, setPomodoroRunning] = useState(false);
@@ -926,6 +1007,9 @@ export default function DisciplinaTotalApp() {
   const [historyDate, setHistoryDate] = useState(todayISO());
   const fileRef = useRef(null);
   const bgUploadRef = useRef(null);
+  const lastCloudFingerprintRef = useRef('');
+  const lastCloudTimestampRef = useRef('');
+  const applyingRemoteSyncRef = useRef(false);
   const toast = useToast();
 
   useEffect(() => {
@@ -979,10 +1063,45 @@ export default function DisciplinaTotalApp() {
     state.settings.pomodoroLongBreakMin,
   ]);
 
+  useEffect(() => {
+    if (!storageReady || !isCloudSyncConfigured()) return;
+    const syncKey = (state.settings.cloudSyncKey || '').trim();
+    if (!state.settings.cloudAutoSync || !syncKey) return;
+    const fingerprint = buildSyncFingerprint(state);
+    if (applyingRemoteSyncRef.current) {
+      lastCloudFingerprintRef.current = fingerprint;
+      return;
+    }
+    if (fingerprint === lastCloudFingerprintRef.current) return;
+    const timeoutId = window.setTimeout(() => {
+      pushCloudNow(true);
+    }, 1200);
+    return () => window.clearTimeout(timeoutId);
+  }, [state, storageReady]);
+
+  useEffect(() => {
+    if (!storageReady || !isCloudSyncConfigured()) return;
+    const syncKey = (state.settings.cloudSyncKey || '').trim();
+    if (!state.settings.cloudAutoSync || !syncKey) return;
+    pullCloudNow(true);
+    const intervalId = window.setInterval(() => {
+      pullCloudNow(true);
+    }, 15000);
+    const handleFocus = () => {
+      pullCloudNow(true);
+    };
+    window.addEventListener('focus', handleFocus);
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener('focus', handleFocus);
+    };
+  }, [storageReady, state.settings.cloudAutoSync, state.settings.cloudSyncKey]);
+
   const usingImageBackground = !!state.appearance.backgroundImage;
   const isLight = state.appearance.themeMode === 'light';
   const locale = state.settings.locale || 'PT-BR';
   const copy = getCopy(locale);
+  const cloudConfigured = isCloudSyncConfigured();
   const backgroundValue = usingImageBackground ? `url(${state.appearance.backgroundImage})` : themeGradients[state.appearance.themeMode || 'dark'];
   const fullHistory = useMemo(() => buildFullHistory(state), [state]);
   const weekDates = getDateRange(7);
@@ -1342,6 +1461,91 @@ function updateState(updater) { setState((prev) => updater(prev)); }
   function clearBackgroundImage() {
     updateState((prev) => ({ ...prev, appearance: { ...prev.appearance, backgroundImage: '', backgroundUrl: '' } }));
     toast.push('Voltando ao tema');
+  }
+
+  function buildSyncFingerprint(nextState) {
+    return JSON.stringify({
+      tasks: nextState.tasks,
+      habits: nextState.habits,
+      history: nextState.history,
+      reflections: nextState.reflections,
+      settings: { ...nextState.settings, cloudSyncKey: nextState.settings.cloudSyncKey, cloudAutoSync: nextState.settings.cloudAutoSync },
+      appearance: nextState.appearance,
+    });
+  }
+
+  async function pushCloudNow(silent = false) {
+    const syncKey = (state.settings.cloudSyncKey || '').trim();
+    if (!cloudConfigured) {
+      if (!silent) toast.push(copy.cloudNotConfigured);
+      return false;
+    }
+    if (!syncKey) {
+      if (!silent) toast.push(copy.syncCode);
+      return false;
+    }
+    if (!silent) setCloudSyncBusy(true);
+    try {
+      const updatedAt = await pushStateToCloud(syncKey, state);
+      lastCloudFingerprintRef.current = buildSyncFingerprint(state);
+      lastCloudTimestampRef.current = updatedAt || new Date().toISOString();
+      setCloudLastSyncedAt(lastCloudTimestampRef.current);
+      if (!silent) toast.push(copy.pushCloud);
+      return true;
+    } catch (error) {
+      if (!silent) toast.push(copy.cloudNotConfigured, error?.message || '');
+      return false;
+    } finally {
+      if (!silent) setCloudSyncBusy(false);
+    }
+  }
+
+  async function pullCloudNow(silent = false) {
+    const syncKey = (state.settings.cloudSyncKey || '').trim();
+    if (!cloudConfigured) {
+      if (!silent) toast.push(copy.cloudNotConfigured);
+      return false;
+    }
+    if (!syncKey) {
+      if (!silent) toast.push(copy.syncCode);
+      return false;
+    }
+    if (!silent) setCloudSyncBusy(true);
+    try {
+      const remote = await pullStateFromCloud(syncKey);
+      if (!remote?.state) {
+        if (!silent) toast.push(copy.noCloudData);
+        return false;
+      }
+      if (remote.updatedAt && remote.updatedAt === lastCloudTimestampRef.current) return false;
+      const nextState = buildPersistedState(sampleState(), remote.state);
+      applyingRemoteSyncRef.current = true;
+      setState(nextState);
+      setStorageReady(true);
+      setTimeout(() => { applyingRemoteSyncRef.current = false; }, 0);
+      lastCloudFingerprintRef.current = buildSyncFingerprint(nextState);
+      lastCloudTimestampRef.current = remote.updatedAt || new Date().toISOString();
+      setCloudLastSyncedAt(lastCloudTimestampRef.current);
+      if (!silent) toast.push(copy.pullCloud);
+      return true;
+    } catch (error) {
+      if (!silent) toast.push(copy.cloudNotConfigured, error?.message || '');
+      return false;
+    } finally {
+      if (!silent) setCloudSyncBusy(false);
+    }
+  }
+
+  function resetStatisticsOnly() {
+    setState((prev) => resetStatisticsState(prev));
+    setShowResetStatsModal(false);
+    toast.push(copy.resetStatsData);
+  }
+
+  function resetPastProgressOnly() {
+    setState((prev) => resetPastProgressState(prev));
+    setShowResetPastModal(false);
+    toast.push(copy.resetPastProgress);
   }
 
   function addPomodoroUrl() {
@@ -2028,7 +2232,25 @@ if (page === 'stats') {
             <button className="ghost-btn" onClick={exportData}><Download size={16} /> {copy.exportJson}</button>
             <button className="ghost-btn" onClick={() => fileRef.current?.click()}><Upload size={16} /> {copy.importJson}</button>
             <input ref={fileRef} type="file" accept="application/json" hidden onChange={(e) => e.target.files?.[0] && importData(e.target.files[0])} />
+            <button className="ghost-btn" onClick={() => setShowResetStatsModal(true)}><BarChart3 size={16} /> {copy.resetStatsData}</button>
+            <button className="ghost-btn" onClick={() => setShowResetPastModal(true)}><CalendarDays size={16} /> {copy.resetPastProgress}</button>
             <button className="danger-btn" onClick={() => setShowResetModal(true)}><Trash2 size={16} /> {copy.resetAllData}</button>
+          </div>
+          <SectionHeader title={copy.cloudSync} subtitle={copy.cloudSyncSub} />
+          <div className="stack small-gap">
+            <Field label={copy.syncCode}>
+              <input value={state.settings.cloudSyncKey || ''} onChange={(e) => updateState((prev) => ({ ...prev, settings: { ...prev.settings, cloudSyncKey: e.target.value } }))} placeholder={copy.syncCodePlaceholder} />
+            </Field>
+            <label className="switch-row">
+              <input type="checkbox" checked={Boolean(state.settings.cloudAutoSync)} onChange={(e) => updateState((prev) => ({ ...prev, settings: { ...prev.settings, cloudAutoSync: e.target.checked } }))} />
+              <span>{copy.autoSync}</span>
+            </label>
+            {!cloudConfigured && <div className="helper-card"><small>{copy.cloudNotConfigured} {copy.cloudSetupHint}</small></div>}
+            <div className="upload-row">
+              <button className="ghost-btn" onClick={() => pullCloudNow(false)} disabled={cloudSyncBusy}><Download size={16} /> {copy.pullCloud}</button>
+              <button className="ghost-btn" onClick={() => pushCloudNow(false)} disabled={cloudSyncBusy}><Upload size={16} /> {copy.pushCloud}</button>
+            </div>
+            <div className="row-sub">{copy.cloudLastSync}: {cloudLastSyncedAt ? new Date(cloudLastSyncedAt).toLocaleString(locale) : '—'}</div>
           </div>
           <SectionHeader title={copy.weeklyGoals} subtitle={copy.onePerLine} />
           <textarea
@@ -2153,6 +2375,26 @@ if (page === 'stats') {
         onClose={() => setShowResetModal(false)}
         onConfirm={resetAll}
       />
+      <ResetConfirmModal
+        open={showResetStatsModal}
+        locale={locale}
+        title={copy.resetStatsTitle}
+        description={copy.resetStatsDescription}
+        confirmLabel={copy.confirmReset}
+        cancelLabel={copy.cancel}
+        onClose={() => setShowResetStatsModal(false)}
+        onConfirm={resetStatisticsOnly}
+      />
+      <ResetConfirmModal
+        open={showResetPastModal}
+        locale={locale}
+        title={copy.resetPastProgressTitle}
+        description={copy.resetPastProgressDescription}
+        confirmLabel={copy.confirmReset}
+        cancelLabel={copy.cancel}
+        onClose={() => setShowResetPastModal(false)}
+        onConfirm={resetPastProgressOnly}
+      />
       <ToastLayer items={toast.items} />
     </div>
   );
@@ -2249,6 +2491,7 @@ function NumberField({ label, value, onCommit, min = 0, placeholder = '' }) {
 }
 function TaskModal({ open, onClose, task, onSave, categories, locale = 'PT-BR' }) {
   const copy = getCopy(locale);
+  const cloudConfigured = isCloudSyncConfigured();
   const weekdayLabels = WEEKDAY_SHORT[locale] || WEEKDAY_SHORT['PT-BR'];
   const [draft, setDraft] = useState(null);
   useEffect(() => setDraft(task ? {
@@ -2432,6 +2675,7 @@ function PomodoroMainCard({ locale = 'PT-BR', timer, running, mode, cycles, next
 }
 function HabitModal({ open, onClose, habit, onSave, categories, locale = 'PT-BR' }) {
   const copy = getCopy(locale);
+  const cloudConfigured = isCloudSyncConfigured();
   const [draft, setDraft] = useState(null);
   useEffect(() => setDraft(habit), [habit]);
   if (!open || !draft) return null;
