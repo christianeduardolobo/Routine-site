@@ -9,7 +9,7 @@ import {
 } from 'lucide-react';
 import {
   ResponsiveContainer, AreaChart, Area, CartesianGrid, XAxis, YAxis,
-  Tooltip, BarChart, Bar, LineChart, Line,
+  Tooltip, BarChart, Bar, LineChart, Line, RadialBarChart, RadialBar, PolarAngleAxis,
 } from 'recharts';
 
 const STORAGE_KEY = 'disciplina-total-premium-v16';
@@ -573,8 +573,8 @@ function getCopy(locale = 'PT-BR') {
 
 function categoryLabel(category, locale = 'PT-BR') {
   const labels = {
-    'PT-BR': { saúde: 'saúde', espiritualidade: 'espiritualidade', estudo: 'estudo', trabalho: 'trabalho', pessoal: 'pessoal', financeiro: 'financeiro' },
-    'EN-US': { saúde: 'health', espiritualidade: 'spirituality', estudo: 'study', trabalho: 'work', pessoal: 'personal', financeiro: 'finance' },
+    'PT-BR': { saúde: 'Saúde', espiritualidade: 'Espiritualidade', estudo: 'Estudo', trabalho: 'Trabalho', pessoal: 'Pessoal', financeiro: 'Financeiro' },
+    'EN-US': { saúde: 'Health', espiritualidade: 'Spirituality', estudo: 'Study', trabalho: 'Work', pessoal: 'Personal', financeiro: 'Finance' },
   };
   return (labels[locale] && labels[locale][category]) || category;
 }
@@ -1061,6 +1061,32 @@ const priorityCompletionData = ['crítica', 'alta', 'média', 'baixa']
     };
   })
   .filter((item) => item.total > 0);
+const categoryPalette = {
+  estudo: '#60a5fa',
+  trabalho: '#22c55e',
+  pessoal: '#f59e0b',
+  financeiro: '#14b8a6',
+  saúde: '#f97316',
+  espiritualidade: '#c084fc',
+};
+const categoryDeliveryData = ['estudo', 'trabalho', 'pessoal', 'financeiro', 'saúde', 'espiritualidade']
+  .map((category) => {
+    const items = weekTasks.filter((task) => task.category === category);
+    const total = items.length;
+    const deliveredWeight = items.reduce((sum, task) => sum + getTaskProgressForDate(task, task.date || todayISO()), 0);
+    const fullDeliveries = items.filter((task) => getTaskProgressForDate(task, task.date || todayISO()) >= 1).length;
+    return {
+      key: category,
+      name: categoryLabel(category, locale),
+      total,
+      entregues: Number(deliveredWeight.toFixed(2)),
+      entregasCompletas: fullDeliveries,
+      taxa: percentage(total ? (deliveredWeight / total) * 100 : 0),
+      fill: categoryPalette[category] || 'var(--accent)',
+    };
+  })
+  .filter((item) => item.total > 0)
+  .sort((a, b) => b.taxa - a.taxa);
 const habitWindow = getDateRange(14);
 const habitConsistencyData = state.habits
   .map((habit) => {
@@ -1799,6 +1825,53 @@ if (page === 'stats') {
         <Metric icon={<Trophy size={16} />} label={locale === 'EN-US' ? 'Overall average' : 'Média geral'} value={`${generalAverage}%`} />
         <Metric icon={<Flame size={16} />} label={locale === 'EN-US' ? 'Record / streak' : 'Recorde / sequência'} value={`${record}% • ${streak}d`} />
       </div>
+
+      <section className="glass section-card">
+        <SectionHeader
+          title={locale === 'EN-US' ? 'Category delivery radar (7 days)' : 'Radar de entrega por categoria (7 dias)'}
+          subtitle={locale === 'EN-US' ? 'A top view of which categories are actually turning into delivery.' : 'Uma visão top de quais categorias estão realmente virando entrega.'}
+        />
+        <div className="split-2">
+          <div className="chart-box">
+            <ResponsiveContainer width="100%" height="100%">
+              <RadialBarChart
+                innerRadius="22%"
+                outerRadius="92%"
+                data={categoryDeliveryData}
+                startAngle={90}
+                endAngle={-270}
+                cx="50%"
+                cy="50%"
+                barSize={18}
+              >
+                <PolarAngleAxis type="number" domain={[0, 100]} tick={false} />
+                <Tooltip content={<ChartTooltip />} />
+                <RadialBar background dataKey="taxa" cornerRadius={16} />
+              </RadialBarChart>
+            </ResponsiveContainer>
+          </div>
+          <div className="stack">
+            {categoryDeliveryData.length ? categoryDeliveryData.map((item) => (
+              <div key={item.key} className="simple-card">
+                <div className="row-title" style={{ color: item.fill }}>{item.name}</div>
+                <div className="row-sub">
+                  {locale === 'EN-US'
+                    ? `${item.entregues.toFixed(2)}/${item.total} weighted deliveries • ${item.entregasCompletas} fully delivered`
+                    : `${item.entregues.toFixed(2)}/${item.total} entregas ponderadas • ${item.entregasCompletas} completas`}
+                </div>
+                <div className="progress-track slim" style={{ marginTop: 10 }}>
+                  <div className="progress-fill" style={{ width: `${item.taxa}%`, background: item.fill }} />
+                </div>
+              </div>
+            )) : (
+              <div className="empty-state-card">
+                <div className="row-title">{locale === 'EN-US' ? 'No delivered categories yet.' : 'Ainda não há categorias entregues.'}</div>
+                <div className="row-sub">{locale === 'EN-US' ? 'Complete tasks this week and the category radar appears here.' : 'Conclua tarefas nesta semana e o radar de categorias aparece aqui.'}</div>
+              </div>
+            )}
+          </div>
+        </div>
+      </section>
 
       <div className="split-2">
         <section className="glass section-card">
