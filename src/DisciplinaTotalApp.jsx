@@ -9,7 +9,7 @@ import {
 } from 'lucide-react';
 import {
   ResponsiveContainer, AreaChart, Area, CartesianGrid, XAxis, YAxis,
-  Tooltip, BarChart, Bar, LineChart, Line,
+  Tooltip, BarChart, Bar, LineChart, Line, RadialBarChart, RadialBar, PolarAngleAxis,
 } from 'recharts';
 
 const STORAGE_KEY = 'disciplina-total-premium-v16';
@@ -146,10 +146,8 @@ function taskMatchesSearch(task, query) {
   );
 }
 
-function buildRemainingWeekDates(referenceDate = todayISO()) {
-  const startDay = weekdayFromISO(referenceDate);
-  const daysUntilEndOfWeek = 6 - startDay;
-  return Array.from({ length: daysUntilEndOfWeek + 1 }, (_, index) => offsetDate(referenceDate, index));
+function buildUpcomingDates(referenceDate = todayISO(), totalDays = 14) {
+  return Array.from({ length: totalDays }, (_, index) => offsetDate(referenceDate, index));
 }
 
 function formatRoutineDayHeading(date, locale = 'PT-BR') {
@@ -575,8 +573,8 @@ function getCopy(locale = 'PT-BR') {
 
 function categoryLabel(category, locale = 'PT-BR') {
   const labels = {
-    'PT-BR': { saúde: 'saúde', espiritualidade: 'espiritualidade', estudo: 'estudo', trabalho: 'trabalho', pessoal: 'pessoal', financeiro: 'financeiro' },
-    'EN-US': { saúde: 'health', espiritualidade: 'spirituality', estudo: 'study', trabalho: 'work', pessoal: 'personal', financeiro: 'finance' },
+    'PT-BR': { saúde: 'Saúde', espiritualidade: 'Espiritualidade', estudo: 'Estudo', trabalho: 'Trabalho', pessoal: 'Pessoal', financeiro: 'Financeiro' },
+    'EN-US': { saúde: 'Health', espiritualidade: 'Spirituality', estudo: 'Study', trabalho: 'Work', pessoal: 'Personal', financeiro: 'Finance' },
   };
   return (labels[locale] && labels[locale][category]) || category;
 }
@@ -994,7 +992,7 @@ export default function DisciplinaTotalApp() {
   const todayTasksRaw = state.tasks.filter((t) => taskMatchesDate(t, todayISO()));
   const todayTasks = sortTasksByTime(todayTasksRaw.map((task) => withEffectiveTaskStatus(task, todayISO())));
   const routineReferenceDate = todayISO();
-  const routineWeekDates = buildRemainingWeekDates(routineReferenceDate);
+  const routineWeekDates = buildUpcomingDates(routineReferenceDate, 14);
   const filteredTasks = sortTasksByTime(
     state.tasks
       .filter((task) => taskMatchesDate(task, routineReferenceDate))
@@ -1063,6 +1061,32 @@ const priorityCompletionData = ['crítica', 'alta', 'média', 'baixa']
     };
   })
   .filter((item) => item.total > 0);
+const categoryPalette = {
+  estudo: '#60a5fa',
+  trabalho: '#22c55e',
+  pessoal: '#f59e0b',
+  financeiro: '#14b8a6',
+  saúde: '#f97316',
+  espiritualidade: '#c084fc',
+};
+const categoryDeliveryData = ['estudo', 'trabalho', 'pessoal', 'financeiro', 'saúde', 'espiritualidade']
+  .map((category) => {
+    const items = weekTasks.filter((task) => task.category === category);
+    const total = items.length;
+    const deliveredWeight = items.reduce((sum, task) => sum + getResolvedTaskProgress(task), 0);
+    const fullDeliveries = items.filter((task) => getResolvedTaskProgress(task) >= 1).length;
+    return {
+      key: category,
+      name: categoryLabel(category, locale),
+      total,
+      entregues: Number(deliveredWeight.toFixed(2)),
+      entregasCompletas: fullDeliveries,
+      taxa: percentage(total ? (deliveredWeight / total) * 100 : 0),
+      fill: categoryPalette[category] || 'var(--accent)',
+    };
+  })
+  .filter((item) => item.total > 0)
+  .sort((a, b) => b.taxa - a.taxa);
 const habitWindow = getDateRange(14);
 const habitConsistencyData = state.habits
   .map((habit) => {
@@ -1641,7 +1665,7 @@ if (page === 'dashboard') {
           <section className="glass section-card">
             <SectionHeader
               title={locale === 'EN-US' ? 'Your operational board' : 'Seu painel operacional do dia'}
-              subtitle={locale === 'EN-US' ? 'Choose between today only or the remaining days of the week.' : 'Escolha entre ver só hoje ou os próximos dias da semana.'}
+              subtitle={locale === 'EN-US' ? 'Choose between today only or the next 14 days.' : 'Escolha entre ver só hoje ou os próximos 14 dias.'}
               action={<button className="primary-btn" onClick={openNewTask}><Plus size={16} /> {copy.newTask}</button>}
             />
             <div className="toolbar-row" style={{ flexWrap: 'wrap' }}>
@@ -1691,8 +1715,8 @@ if (page === 'dashboard') {
               </div>
             ) : (
               <div className="empty-state-card">
-                <div className="row-title">{locale === 'EN-US' ? 'No tasks found from today until the end of the week.' : 'Nenhuma tarefa encontrada de hoje até o fim da semana.'}</div>
-                <div className="row-sub">{locale === 'EN-US' ? 'Use the recurring weekdays to make tasks appear on the correct days.' : 'Use os dias recorrentes para fazer as tarefas aparecerem nos dias certos.'}</div>
+                <div className="row-title">{locale === 'EN-US' ? 'No tasks found in the next 14 days.' : 'Nenhuma tarefa encontrada nos próximos 14 dias.'}</div>
+                <div className="row-sub">{locale === 'EN-US' ? 'Use recurring weekdays and the next week will continue appearing automatically.' : 'Use os dias recorrentes e a próxima semana continuará aparecendo automaticamente.'}</div>
               </div>
             )
           )}
@@ -1801,6 +1825,53 @@ if (page === 'stats') {
         <Metric icon={<Trophy size={16} />} label={locale === 'EN-US' ? 'Overall average' : 'Média geral'} value={`${generalAverage}%`} />
         <Metric icon={<Flame size={16} />} label={locale === 'EN-US' ? 'Record / streak' : 'Recorde / sequência'} value={`${record}% • ${streak}d`} />
       </div>
+
+      <section className="glass section-card">
+        <SectionHeader
+          title={locale === 'EN-US' ? 'Category delivery radar (7 days)' : 'Radar de entrega por categoria (7 dias)'}
+          subtitle={locale === 'EN-US' ? 'A top view of which categories are actually turning into delivery.' : 'Uma visão top de quais categorias estão realmente virando entrega.'}
+        />
+        <div className="split-2">
+          <div className="chart-box">
+            <ResponsiveContainer width="100%" height="100%">
+              <RadialBarChart
+                innerRadius="22%"
+                outerRadius="92%"
+                data={categoryDeliveryData}
+                startAngle={90}
+                endAngle={-270}
+                cx="50%"
+                cy="50%"
+                barSize={18}
+              >
+                <PolarAngleAxis type="number" domain={[0, 100]} tick={false} />
+                <Tooltip content={<ChartTooltip />} />
+                <RadialBar background dataKey="taxa" cornerRadius={16} />
+              </RadialBarChart>
+            </ResponsiveContainer>
+          </div>
+          <div className="stack">
+            {categoryDeliveryData.length ? categoryDeliveryData.map((item) => (
+              <div key={item.key} className="simple-card">
+                <div className="row-title" style={{ color: item.fill }}>{item.name}</div>
+                <div className="row-sub">
+                  {locale === 'EN-US'
+                    ? `${item.entregues.toFixed(2)}/${item.total} weighted deliveries • ${item.entregasCompletas} fully delivered`
+                    : `${item.entregues.toFixed(2)}/${item.total} entregas ponderadas • ${item.entregasCompletas} completas`}
+                </div>
+                <div className="progress-track slim" style={{ marginTop: 10 }}>
+                  <div className="progress-fill" style={{ width: `${item.taxa}%`, background: item.fill }} />
+                </div>
+              </div>
+            )) : (
+              <div className="empty-state-card">
+                <div className="row-title">{locale === 'EN-US' ? 'No delivered categories yet.' : 'Ainda não há categorias entregues.'}</div>
+                <div className="row-sub">{locale === 'EN-US' ? 'Complete tasks this week and the category radar appears here.' : 'Conclua tarefas nesta semana e o radar de categorias aparece aqui.'}</div>
+              </div>
+            )}
+          </div>
+        </div>
+      </section>
 
       <div className="split-2">
         <section className="glass section-card">
@@ -2099,6 +2170,14 @@ function calcHabitStreak(habit) {
   let streak = 0;
   for (let i = dates.length - 1; i >= 0; i--) { if ((habit.logs[dates[i]] || 0) >= habit.target) streak++; else break; }
   return streak;
+}
+function getResolvedTaskProgress(task) {
+  const subtasks = Array.isArray(task.subtasks) ? task.subtasks.filter((subtask) => (subtask.title || '').trim()) : [];
+  if (subtasks.length) {
+    const doneSubtasks = subtasks.filter((subtask) => subtask.done).length;
+    return doneSubtasks / subtasks.length;
+  }
+  return task.status === 'done' ? 1 : 0;
 }
 function fmtTimer(seconds) {
   const mins = String(Math.floor(seconds / 60)).padStart(2, '0');
