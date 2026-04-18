@@ -1231,3 +1231,361 @@ input[type='checkbox'] { width: 18px; height: 18px; accent-color: var(--primary)
     height: 14px;
   }
 }
+
+
+/* ── HOTFIX RESPONSIVO GERAL / IOS / POMODORO / SETTINGS ───────── */
+
+:root {
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+}
+
+.page-content {
+  width: min(100%, 1360px);
+  margin: 0 auto;
+  padding-inline: clamp(0px, 1vw, 6px);
+}
+
+.settings-layout,
+.settings-layout .stack,
+.settings-layout .split-2,
+.settings-layout .form-grid {
+  align-items: start;
+}
+
+.settings-layout .section-card {
+  overflow: hidden;
+}
+
+.settings-layout textarea,
+.settings-layout input,
+.settings-layout select {
+  min-width: 0;
+}
+
+.settings-layout .upload-row,
+.settings-layout .theme-toggle-row,
+.settings-layout .pomodoro-actions,
+.settings-layout .task-actions-row {
+  flex-wrap: wrap;
+}
+
+.settings-layout .ghost-btn,
+.settings-layout .primary-btn,
+.settings-layout .danger-btn {
+  max-width: 100%;
+}
+
+.settings-layout .section-card .section-subtitle {
+  line-height: 1.5;
+}
+
+.settings-layout .section-card textarea {
+  min-height: 160px;
+}
+
+.mobile-nav {
+  display: none;
+  position: fixed;
+  left: max(10px, calc(12px + var(--safe-left)));
+  right: max(10px, calc(12px + var(--safe-right)));
+  bottom: max(10px, calc(12px + var(--safe-bottom)));
+  z-index: 40;
+  margin: 0;
+  padding: 10px;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 6px;
+  border-radius: 28px;
+  backdrop-filter: blur(18px);
+}
+
+.mobile-btn {
+  min-width: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  border-radius: 18px;
+  padding: 10px 6px 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-size: 11px;
+  line-height: 1.1;
+  text-align: center;
+}
+
+.mobile-btn svg {
+  width: 20px;
+  height: 20px;
+  flex: 0 0 auto;
+}
+
+.mobile-btn span {
+  display: block;
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.mobile-btn.active {
+  background: rgba(255,255,255,0.10);
+}
+
+.discipline-app.light .mobile-btn.active {
+  background: rgba(15,23,42,0.08);
+}
+
+@media (max-width: 900px) {
+  .mobile-nav {
+    display: grid;
+  }
+
+  .page-content {
+    padding-bottom: calc(132px + var(--safe-bottom));
+  }
+
+  .topbar {
+    padding-top: calc(16px + var(--safe-top));
+  }
+
+  .app-frame {
+    padding-left: max(14px, calc(14px + var(--safe-left)));
+    padding-right: max(14px, calc(14px + var(--safe-right)));
+    padding-top: max(14px, calc(14px + var(--safe-top)));
+    padding-bottom: calc(18px + var(--safe-bottom));
+  }
+
+  .section-card {
+    border-radius: 22px;
+  }
+
+  .settings-layout .form-grid,
+  .settings-layout .split-2 {
+    grid-template-columns: 1fr;
+  }
+
+  .settings-layout .section-card {
+    padding: 16px;
+  }
+
+  .settings-layout .theme-toggle-row {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .settings-layout .upload-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+
+  .settings-layout .section-card textarea {
+    min-height: 140px;
+  }
+
+  .pomodoro-main-card {
+    gap: 16px;
+  }
+
+  .pomodoro-main-top {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+  }
+
+  .pomodoro-big-time,
+  .pomodoro-time {
+    font-size: clamp(62px, 16vw, 92px) !important;
+    line-height: 0.95;
+    letter-spacing: -0.06em;
+    text-align: center;
+  }
+
+  .pomodoro-subline {
+    font-size: 15px;
+    line-height: 1.5;
+    text-align: center;
+  }
+
+  .pomodoro-mode-badges {
+    justify-content: center;
+    gap: 8px;
+  }
+
+  .pomodoro-actions.stretch {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+
+  .pomodoro-actions.stretch > * {
+    min-height: 58px;
+    padding: 14px 12px;
+    border-radius: 20px;
+  }
+
+  .pomodoro-config-grid.main-grid,
+  .pomodoro-config-grid {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  .pomodoro-save-grid {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  .pomodoro-sound-row,
+  .pomodoro-links,
+  .saved-url-actions {
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .pomodoro-info-toggle,
+  .pomodoro-info-box,
+  .pomodoro-sound-box {
+    border-radius: 20px;
+  }
+}
+
+@media (max-width: 640px) {
+  .page-content {
+    padding-bottom: calc(146px + var(--safe-bottom));
+  }
+
+  .topbar {
+    gap: 12px;
+    align-items: flex-start;
+    flex-direction: row;
+  }
+
+  .topbar h1 {
+    font-size: 22px;
+    line-height: 1.05;
+  }
+
+  .topbar-date {
+    font-size: 12px;
+  }
+
+  .topbar-actions {
+    gap: 8px;
+    flex-shrink: 0;
+  }
+
+  .topbar-actions .ghost-btn,
+  .topbar-actions .primary-btn {
+    padding: 10px 12px;
+    min-height: 44px;
+  }
+
+  .section-card {
+    padding: 15px;
+  }
+
+  .section-title {
+    font-size: 18px;
+    line-height: 1.1;
+  }
+
+  .section-subtitle {
+    font-size: 13px;
+    line-height: 1.45;
+  }
+
+  .settings-layout .section-card .ghost-btn,
+  .settings-layout .section-card .primary-btn,
+  .settings-layout .section-card .danger-btn {
+    width: 100%;
+  }
+
+  .settings-layout .upload-row {
+    grid-template-columns: 1fr;
+  }
+
+  .settings-layout .theme-toggle-row {
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+
+  .settings-layout .section-card textarea {
+    min-height: 130px;
+  }
+
+  .mobile-nav {
+    left: max(8px, calc(10px + var(--safe-left)));
+    right: max(8px, calc(10px + var(--safe-right)));
+    bottom: max(8px, calc(10px + var(--safe-bottom)));
+    padding: 8px 6px;
+    gap: 2px;
+    border-radius: 24px;
+  }
+
+  .mobile-btn {
+    padding: 8px 2px 7px;
+    gap: 5px;
+    font-size: 10px;
+  }
+
+  .mobile-btn svg {
+    width: 18px;
+    height: 18px;
+  }
+
+  .pomodoro-main-card {
+    padding: 14px;
+    gap: 14px;
+  }
+
+  .pomodoro-big-time,
+  .pomodoro-time {
+    font-size: clamp(68px, 18vw, 96px) !important;
+  }
+
+  .pomodoro-actions.stretch {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .pomodoro-actions.stretch > * {
+    min-height: 64px;
+    font-size: 15px;
+  }
+
+  .pomodoro-main-card .ghost-btn,
+  .pomodoro-main-card .primary-btn,
+  .pomodoro-main-card .danger-btn,
+  .pomodoro-main-card .icon-btn {
+    border-radius: 20px;
+  }
+
+  .pomodoro-main-card .icon-btn svg,
+  .pomodoro-main-card .ghost-btn svg,
+  .pomodoro-main-card .danger-btn svg,
+  .pomodoro-main-card .primary-btn svg {
+    width: 16px;
+    height: 16px;
+  }
+}
+
+@media (max-width: 420px) {
+  .page-content {
+    padding-bottom: calc(154px + var(--safe-bottom));
+  }
+
+  .mobile-btn {
+    font-size: 9px;
+  }
+
+  .topbar h1 {
+    font-size: 20px;
+  }
+
+  .pomodoro-big-time,
+  .pomodoro-time {
+    font-size: clamp(64px, 19vw, 90px) !important;
+  }
+}
