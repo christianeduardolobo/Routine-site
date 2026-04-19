@@ -5,7 +5,7 @@ import {
   Plus, CheckCircle2, Circle, Search, Flame, Sparkles, Trophy, Brain,
   Download, Upload, Trash2, Pencil, ChevronUp, ChevronDown,
   TrendingUp, TrendingDown, Clock3, Focus, Dumbbell,
-  BookOpen, Briefcase, HeartPulse, BedDouble, Droplets,
+  BookOpen, Briefcase, HeartPulse, BedDouble, Droplets, GripVertical,
 } from 'lucide-react';
 import {
   ResponsiveContainer, AreaChart, Area, CartesianGrid, XAxis, YAxis,
@@ -339,6 +339,9 @@ const UI_COPY = {
     cancel: 'Cancelar',
     newTask: 'Nova tarefa',
     newHabit: 'Novo hábito',
+    allTasks: 'Todas as tarefas',
+    moveUp: 'Subir hábito',
+    moveDown: 'Descer hábito',
     nav: { dashboard: 'Dashboard', routine: 'Rotina do Dia', habits: 'Hábitos', history: 'Histórico', stats: 'Estatísticas', pomodoro: 'Pomodoro', settings: 'Configurações' },
     mobileNav: { dashboard: 'Início', routine: 'Rotina', habits: 'Hábitos', stats: 'Estat.', pomodoro: 'Pomodoro', settings: 'Ajustes' },
     streak: 'sequência',
@@ -413,6 +416,9 @@ const UI_COPY = {
     cancel: 'Cancel',
     newTask: 'New task',
     newHabit: 'New habit',
+    allTasks: 'All tasks',
+    moveUp: 'Move habit up',
+    moveDown: 'Move habit down',
     nav: { dashboard: 'Dashboard', routine: 'Daily routine', habits: 'Habits', history: 'History', stats: 'Statistics', pomodoro: 'Pomodoro', settings: 'Settings' },
     mobileNav: { dashboard: 'Home', routine: 'Routine', habits: 'Habits', stats: 'Stats', pomodoro: 'Pomodoro', settings: 'Settings' },
     streak: 'streak',
@@ -1671,7 +1677,7 @@ if (page === 'dashboard') {
       return (
         <div className="stack large-gap">
           <div className="habit-grid-page">
-            {state.habits.map((habit) => {
+            {state.habits.map((habit, index) => {
               const today = habit.logs[todayISO()] || 0;
               const pct = Math.min(100, Math.round((today / habit.target) * 100));
               const streakCount = calcHabitStreak(habit);
