@@ -773,6 +773,7 @@ export default function DisciplinaTotalApp() {
   const [pomodoroLinkNameDraft, setPomodoroLinkNameDraft] = useState('');
   const [pomodoroUrlDraft, setPomodoroUrlDraft] = useState('');
   const [historyDate, setHistoryDate] = useState(todayISO());
+  const [selectedRoutineDate, setSelectedRoutineDate] = useState(todayISO());
   const fileRef = useRef(null);
   const bgUploadRef = useRef(null);
   const toast = useToast();
@@ -894,13 +895,15 @@ export default function DisciplinaTotalApp() {
   const fullHistory = useMemo(() => buildFullHistory(state), [state]);
   const weekDates = getDateRange(7);
   const upcomingDates = getUpcomingRoutineDates();
+  const routineDates = [todayISO(), ...upcomingDates];
   const weekSeries = weekDates.map((d) => ({ label: formatShort(d, locale), raw: d, disciplina: disciplineForDate(state, d) }));
   const monthSeries = getDateRange(30).map((d) => ({ label: formatShort(d, locale), raw: d, disciplina: disciplineForDate(state, d) }));
 
   const todayTasksRaw = state.tasks.filter((t) => t.date === todayISO());
   const todayTasks = sortTasksByTime(todayTasksRaw);
+  const routineTasksRaw = state.tasks.filter((t) => t.date === selectedRoutineDate);
   const filteredTasks = sortTasksByTime(
-    todayTasksRaw.filter((task) =>
+    routineTasksRaw.filter((task) =>
       task.title.toLowerCase().includes(search.toLowerCase()) ||
       (task.description || '').toLowerCase().includes(search.toLowerCase())
     )
@@ -1021,7 +1024,7 @@ function updateState(updater) { setState((prev) => updater(prev)); }
   }
 
   function openNewTask() {
-    setEditingTask({ id: uid(), title: '', description: '', category: 'pessoal', priority: 'média', time: '', status: 'pending', date: todayISO(), color: priorityColor('média'), subtasks: [] });
+    setEditingTask({ id: uid(), title: '', description: '', category: 'pessoal', priority: 'média', time: '', status: 'pending', date: selectedRoutineDate || todayISO(), color: priorityColor('média'), subtasks: [] });
     setShowTaskModal(true);
   }
 
@@ -1375,47 +1378,91 @@ if (page === 'dashboard') {
       return (
         <div className="stack large-gap">
           <section className="glass section-card">
-            <SectionHeader title={locale === 'EN-US' ? 'Your operational board' : 'Seu painel operacional do dia'} subtitle={locale === 'EN-US' ? 'Filter, prioritize, execute and track.' : 'Filtre, priorize, execute e registre.'} action={<button className="primary-btn" onClick={openNewTask}><Plus size={16} /> {copy.newTask}</button>} />
+            <SectionHeader
+              title={locale === 'EN-US' ? 'Your operational board' : 'Seu painel operacional do dia'}
+              subtitle={selectedRoutineDate === todayISO()
+                ? (locale === 'EN-US' ? 'Today + the next 6 days ahead.' : 'Hoje + os próximos 6 dias à frente.')
+                : (locale === 'EN-US' ? `Viewing: ${formatFullDate(selectedRoutineDate, locale)}` : `Visualizando: ${formatFullDate(selectedRoutineDate, locale)}`)}
+              action={<button className="primary-btn" onClick={openNewTask}><Plus size={16} /> {copy.newTask}</button>}
+            />
             <div className="toolbar-row">
               <div className="search-box"><Search size={16} /><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder={locale === 'EN-US' ? 'Search task' : 'Buscar tarefa'} /></div>
             </div>
-          </section>
-          <div className="task-grid">
-            {filteredTasks.map((task) => (
-              <motion.div key={task.id} layout className="glass task-card-premium">
-                <div className="task-card-body">
-                  <button className="task-check" onClick={() => setTaskStatus(task.id, task.status === 'done' ? 'pending' : 'done')}>
-                    {task.status === 'done' ? <CheckCircle2 size={20} /> : <Circle size={20} />}
+            <div className="history-grid">
+              {routineDates.map((date) => {
+                const tasksCount = state.tasks.filter((task) => task.date === date).length;
+                const isToday = date === todayISO();
+                return (
+                  <button
+                    key={date}
+                    className={cls('history-day-card', date === selectedRoutineDate && 'active')}
+                    onClick={() => setSelectedRoutineDate(date)}
+                  >
+                    <div>{isToday ? (locale === 'EN-US' ? 'Today' : 'Hoje') : formatShort(date, locale)}</div>
+                    <strong>{tasksCount}</strong>
+                    <div className={cls('history-dot', tasksCount > 0 ? 'good' : 'mid')} />
                   </button>
-                  <div className="task-card-copy">
-                    <div className={cls('task-card-title', task.status === 'done' && 'done')}>{task.title}</div>
-                    <div className="task-card-meta">{categoryLabel(task.category, locale)} • {priorityLabel(task.priority, locale)} {task.time ? `• ${task.time}` : ''}</div>
-                    {task.description && <p className="task-desc">{task.description}</p>}
-                    {!!task.subtasks.length && (
-                      <div className="subtask-list">
-                        {task.subtasks.map((s) => (
-                          <div key={s.id} className="subtask-item">
-                            <button type="button" className={cls('subtask-toggle', s.done && 'done')} onClick={() => toggleSubtask(task.id, s.id)}>{s.done ? '✓' : ''}</button>
-                            <span className={cls(s.done && 'done')}>{s.title}</span>
-                          </div>
-                        ))}
+                );
+              })}
+            </div>
+          </section>
+
+          {filteredTasks.length ? (
+            <div className="task-grid">
+              {filteredTasks.map((task) => (
+                <motion.div key={task.id} layout className="glass task-card-premium">
+                  <div className="task-card-body">
+                    <button className="task-check" onClick={() => setTaskStatus(task.id, task.status === 'done' ? 'pending' : 'done')}>
+                      {task.status === 'done' ? <CheckCircle2 size={20} /> : <Circle size={20} />}
+                    </button>
+                    <div className="task-card-copy">
+                      <div className={cls('task-card-title', task.status === 'done' && 'done')}>{task.title}</div>
+                      <div className="task-card-meta">
+                        {categoryLabel(task.category, locale)} • {priorityLabel(task.priority, locale)} {task.time ? `• ${task.time}` : ''} • {formatFullDate(task.date, locale)}
                       </div>
-                    )}
-                    <div className="task-actions-row">
-                      <button className="ghost-btn" onClick={() => setTaskStatus(task.id, 'done')}>{copy.done}</button>
-                      <button className="ghost-btn" onClick={() => setTaskStatus(task.id, 'pending')}>{copy.pendingBtn}</button>
-                      <button className="ghost-btn" onClick={() => { setEditingTask(task); setShowTaskModal(true); }}><Pencil size={14} /> {copy.edit}</button>
-                      <button className="ghost-btn" onClick={() => duplicateTask(task)}>{copy.duplicate}</button>
-                      <button className="danger-btn" onClick={() => removeTask(task.id)}><Trash2 size={14} /> {copy.delete}</button>
+                      {task.description && <p className="task-desc">{task.description}</p>}
+                      {!!task.subtasks.length && (
+                        <div className="subtask-list">
+                          {task.subtasks.map((s) => (
+                            <div key={s.id} className="subtask-item">
+                              <button type="button" className={cls('subtask-toggle', s.done && 'done')} onClick={() => toggleSubtask(task.id, s.id)}>{s.done ? '✓' : ''}</button>
+                              <span className={cls(s.done && 'done')}>{s.title}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      <div className="task-actions-row">
+                        <button className="ghost-btn" onClick={() => setTaskStatus(task.id, 'done')}>{copy.done}</button>
+                        <button className="ghost-btn" onClick={() => setTaskStatus(task.id, 'pending')}>{copy.pendingBtn}</button>
+                        <button className="ghost-btn" onClick={() => { setEditingTask(task); setShowTaskModal(true); }}><Pencil size={14} /> {copy.edit}</button>
+                        <button className="ghost-btn" onClick={() => duplicateTask(task)}>{copy.duplicate}</button>
+                        <button className="danger-btn" onClick={() => removeTask(task.id)}><Trash2 size={14} /> {copy.delete}</button>
+                      </div>
                     </div>
                   </div>
+                </motion.div>
+              ))}
+            </div>
+          ) : (
+            <section className="glass section-card">
+              <div className="empty-state-card">
+                <div className="row-title">
+                  {locale === 'EN-US'
+                    ? `Nothing scheduled for ${selectedRoutineDate === todayISO() ? 'today' : formatFullDate(selectedRoutineDate, locale)}.`
+                    : `Nada programado para ${selectedRoutineDate === todayISO() ? 'hoje' : formatFullDate(selectedRoutineDate, locale)}.`}
                 </div>
-              </motion.div>
-            ))}
-          </div>
+                <div className="row-sub">
+                  {locale === 'EN-US'
+                    ? 'Choose another day above or create a task directly for this date.'
+                    : 'Escolha outro dia acima ou crie uma tarefa direto para essa data.'}
+                </div>
+              </div>
+            </section>
+          )}
         </div>
       );
     }
+
 
     if (page === 'habits') {
       return (
@@ -1676,6 +1723,25 @@ if (page === 'stats') {
             <input ref={fileRef} type="file" accept="application/json" hidden onChange={(e) => e.target.files?.[0] && importData(e.target.files[0])} />
             <button className="danger-btn" onClick={() => setShowResetModal(true)}><Trash2 size={16} /> {copy.resetAllData}</button>
           </div>
+          <SectionHeader
+            title={locale === 'EN-US' ? 'Cloud sync' : 'Sincronização em nuvem'}
+            subtitle={locale === 'EN-US' ? 'Use the same code on another device to send or load your data.' : 'Use o mesmo código em outro aparelho para enviar ou carregar seus dados.'}
+          />
+          <div className="stack small-gap">
+            <input
+              value={syncKey}
+              onChange={(e) => setSyncKey(e.target.value)}
+              placeholder={locale === 'EN-US' ? 'Enter your sync code' : 'Digite seu código de sincronização'}
+            />
+            <div className="task-actions-row">
+              <button className="ghost-btn" onClick={handleCloudDownload} disabled={cloudSyncBusy}>
+                <Download size={16} /> {locale === 'EN-US' ? 'Load from cloud' : 'Baixar da nuvem'}
+              </button>
+              <button className="primary-btn" onClick={handleCloudUpload} disabled={cloudSyncBusy}>
+                <Upload size={16} /> {cloudSyncBusy ? (locale === 'EN-US' ? 'Syncing...' : 'Sincronizando...') : (locale === 'EN-US' ? 'Send to cloud' : 'Enviar para a nuvem')}
+              </button>
+            </div>
+          </div>
           <SectionHeader title={copy.weeklyGoals} subtitle={copy.onePerLine} />
           <textarea
             className="weekly-goals-textarea"
@@ -1931,6 +1997,7 @@ function TaskModal({ open, onClose, task, onSave, categories, locale = 'PT-BR' }
             </select>
           </Field>
           <Field label={copy.time}><input value={draft.time || ''} onChange={(e) => setDraft({ ...draft, time: e.target.value })} placeholder="08:00" /></Field>
+          <Field label={locale === 'EN-US' ? 'Day' : 'Dia'}><input type="date" value={draft.date || todayISO()} onChange={(e) => setDraft({ ...draft, date: e.target.value })} /></Field>
           <div className="field helper-card"><span>{copy.discipline}</span><small>{copy.disciplineHelp}</small></div>
           <Field label={copy.description}><textarea value={draft.description || ''} onChange={(e) => setDraft({ ...draft, description: e.target.value })} /></Field>
           <div className="field subtasks-editor">
