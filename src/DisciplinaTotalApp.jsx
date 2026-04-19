@@ -1218,6 +1218,20 @@ function updateState(updater) { setState((prev) => updater(prev)); }
     toast.push(locale === 'EN-US' ? 'Habits reordered' : 'Hábitos reordenados');
   }
 
+  function moveHabitByStep(habitId, direction) {
+    updateState((prev) => {
+      const index = prev.habits.findIndex((habit) => habit.id === habitId);
+      if (index === -1) return prev;
+      const targetIndex = direction === 'up' ? index - 1 : index + 1;
+      if (targetIndex < 0 || targetIndex >= prev.habits.length) return prev;
+      const habits = [...prev.habits];
+      const [removed] = habits.splice(index, 1);
+      habits.splice(targetIndex, 0, removed);
+      return { ...prev, habits };
+    });
+    toast.push(locale === 'EN-US' ? 'Habits reordered' : 'Hábitos reordenados');
+  }
+
   function handleHabitDragStart(habitId) {
     setDraggingHabitId(habitId);
     setHabitDropTargetId(habitId);
@@ -1566,7 +1580,7 @@ if (page === 'dashboard') {
               <div className="search-box"><Search size={16} /><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder={locale === 'EN-US' ? 'Search task' : 'Buscar tarefa'} /></div>
               <div className="routine-view-toggle">
                 <button className={cls('ghost-btn', routineView === 'day' && 'active-filter')} onClick={() => setRoutineView('day')}>{locale === 'EN-US' ? 'Today' : 'Hoje'}</button>
-                <button className={cls('ghost-btn', routineView === 'week' && 'active-filter')} onClick={() => setRoutineView('week')}>{locale === 'EN-US' ? 'Today + 6 days' : 'Hoje + 6 dias'}</button>
+                <button className={cls('ghost-btn', routineView === 'week' && 'active-filter')} onClick={() => setRoutineView('week')}>{copy.allTasks}</button>
               </div>
             </div>
           </section>
@@ -1677,7 +1691,9 @@ if (page === 'dashboard') {
                     </div>
                     <div className="habit-head-actions">
                       <span className="pill habit-streak-pill" style={{ background: alphaColor(habit.color, '18'), color: habit.color, borderColor: alphaColor(habit.color, '3D') }}>{copy.streak} {streakCount}</span>
-                      <button className="ghost-btn compact habit-drag-handle" type="button" draggable onDragStart={() => handleHabitDragStart(habit.id)} onDragEnd={handleHabitDragEnd} title={locale === 'EN-US' ? 'Drag to reorder habits' : 'Arraste para reordenar hábitos'}>↕ {locale === 'EN-US' ? 'Order' : 'Ordenar'}</button>
+                      <button className="ghost-btn compact round habit-drag-handle" type="button" draggable onDragStart={() => handleHabitDragStart(habit.id)} onDragEnd={handleHabitDragEnd} title={locale === 'EN-US' ? 'Drag to reorder habits' : 'Arraste para reordenar hábitos'} aria-label={copy.dragToReorder}><GripVertical size={16} /></button>
+                      <button className="ghost-btn compact round" type="button" onClick={() => moveHabitByStep(habit.id, 'up')} title={copy.moveUp} aria-label={copy.moveUp} disabled={index === 0}><ChevronUp size={16} /></button>
+                      <button className="ghost-btn compact round" type="button" onClick={() => moveHabitByStep(habit.id, 'down')} title={copy.moveDown} aria-label={copy.moveDown} disabled={index === state.habits.length - 1}><ChevronDown size={16} /></button>
                       <button className="ghost-btn compact" onClick={() => { setEditingHabit(habit); setShowHabitModal(true); }}><Pencil size={14} /> {copy.edit}</button>
                       <button className="danger-btn compact" onClick={() => removeHabit(habit.id)}><Trash2 size={14} /> {copy.delete}</button>
                     </div>
