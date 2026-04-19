@@ -2023,6 +2023,17 @@ if (page === 'stats') {
     );
   })();
 
+  if (!storageReady) {
+    return (
+      <LoadingBootScreen
+        locale={locale}
+        isLight={isLight}
+        primary={state.appearance.primary}
+        accent={state.appearance.accent}
+      />
+    );
+  }
+
   return (
     <div
       className={cls('discipline-app', isLight && 'light')}
@@ -2532,6 +2543,71 @@ function ResetConfirmModal({ open, onClose, onConfirm, title, description, confi
             {confirmLabel}
           </button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function LoadingBootScreen({ locale = 'PT-BR', isLight = false, primary = '#60a5fa', accent = '#c084fc' }) {
+  const snakeSrc = `${import.meta.env.BASE_URL}ouroboros.png`;
+  const title = locale === 'EN-US' ? 'Loading your command center' : 'Carregando seu centro de comando';
+  const subtitle = locale === 'EN-US'
+    ? 'Bringing back your data, habits and rhythm.'
+    : 'Trazendo de volta seus dados, hábitos e ritmo.';
+
+  return (
+    <div
+      className={cls('discipline-app', 'discipline-app-loading', isLight && 'light')}
+      style={{
+        '--primary': primary,
+        '--accent': accent,
+        '--radius': '24px',
+        '--bg-image': isLight
+          ? 'linear-gradient(135deg,#eef2ff 0%,#dfe8f4 100%)'
+          : 'linear-gradient(135deg,#070b18 0%,#10182d 44%,#211437 100%)',
+        '--bg-size': 'cover',
+        '--bg-position': 'center',
+        '--overlay': isLight ? 0.18 : 0.28,
+        '--glass-blur': '18px',
+      }}
+    >
+      <div className="bg-base" />
+      <div className="bg-overlay" />
+
+      <div className="loading-screen-shell">
+        <motion.div
+          className="loading-screen-card glass"
+          initial={{ opacity: 0, y: 24, scale: 0.96 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          transition={{ duration: 0.45, ease: 'easeOut' }}
+        >
+          <motion.div
+            className="loading-brand-mark"
+            animate={{ rotate: 360 }}
+            transition={{ duration: 12, repeat: Infinity, ease: 'linear' }}
+          >
+            <img src={snakeSrc} alt="Disciplina Total" className="loading-brand-snake" />
+          </motion.div>
+
+          <div className="loading-brand-title">Disciplina Total</div>
+          <div className="loading-brand-subtitle">{title}</div>
+          <div className="loading-brand-copy">{subtitle}</div>
+
+          <div className="loading-progress-track">
+            <motion.div
+              className="loading-progress-fill"
+              initial={{ width: '18%' }}
+              animate={{ width: ['18%', '72%', '48%', '86%'] }}
+              transition={{ duration: 1.8, repeat: Infinity, ease: 'easeInOut' }}
+            />
+          </div>
+
+          <div className="loading-status-row">
+            <span className="loading-chip">IndexedDB</span>
+            <span className="loading-chip">Cloud sync</span>
+            <span className="loading-chip">Interface</span>
+          </div>
+        </motion.div>
       </div>
     </div>
   );
