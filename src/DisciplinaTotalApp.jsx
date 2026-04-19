@@ -1,11 +1,11 @@
-import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
   LayoutDashboard, ListTodo, Target, CalendarDays, BarChart3, Settings,
   Plus, CheckCircle2, Circle, Search, Flame, Sparkles, Trophy, Brain,
   Download, Upload, Trash2, Pencil, ChevronUp, ChevronDown,
   TrendingUp, TrendingDown, Clock3, Focus, Dumbbell,
-  BookOpen, Briefcase, HeartPulse, BedDouble, Droplets, GripVertical,
+  BookOpen, Briefcase, HeartPulse, BedDouble, Droplets,
 } from 'lucide-react';
 import {
   ResponsiveContainer, AreaChart, Area, CartesianGrid, XAxis, YAxis,
@@ -60,21 +60,31 @@ const offsetDate = (date, amount) => {
 };
 const percentage = (n) => Math.max(0, Math.min(100, Math.round(n)));
 
-// ── CORREÇÃO: sortTasksByTime com ordenação numérica correta ──────────
+function normalizeTaskTimeInput(value = '') {
+  const raw = String(value || '').trim().toLowerCase();
+  if (!raw) return '';
+
+  const compact = raw.replace(/\s+/g, '').replace('h', ':').replace('.', ':');
+  const match = compact.match(/^(\d{1,2})(?::?(\d{1,2}))?$/);
+  if (!match) return raw;
+
+  const hours = Math.max(0, Math.min(23, Number(match[1] || 0)));
+  const minutes = Math.max(0, Math.min(59, Number(match[2] || 0)));
+  return `${pad2(hours)}:${pad2(minutes)}`;
+}
+
+function taskTimeSortValue(value = '') {
+  const normalized = normalizeTaskTimeInput(value);
+  if (!/^\d{2}:\d{2}$/.test(normalized)) return Number.MAX_SAFE_INTEGER;
+  const [hours, minutes] = normalized.split(':').map(Number);
+  return (hours * 60) + minutes;
+}
+
 function sortTasksByTime(tasks) {
   return [...tasks].sort((a, b) => {
-    const timeA = a.time || '';
-    const timeB = b.time || '';
-    // Sem horário vai para o final
-    if (!timeA && !timeB) return 0;
-    if (!timeA) return 1;
-    if (!timeB) return -1;
-    // Comparação numérica: converte "HH:MM" em minutos totais
-    const toMinutes = (t) => {
-      const [h, m] = t.split(':').map(Number);
-      return (h || 0) * 60 + (m || 0);
-    };
-    return toMinutes(timeA) - toMinutes(timeB);
+    const diff = taskTimeSortValue(a.time) - taskTimeSortValue(b.time);
+    if (diff !== 0) return diff;
+    return String(a.title || '').localeCompare(String(b.title || ''), 'pt-BR');
   });
 }
 
@@ -387,7 +397,6 @@ const UI_COPY = {
     critical: 'Crítica',
     taskDone: 'concluída',
     taskPending: 'pendente',
-    dragToReorder: 'Arraste para reordenar',
   },
   'EN-US': {
     brandSubtitle: 'Control, progress and consistency',
@@ -462,7 +471,6 @@ const UI_COPY = {
     critical: 'Critical',
     taskDone: 'done',
     taskPending: 'pending',
-    dragToReorder: 'Drag to reorder',
   },
 };
 
@@ -502,7 +510,7 @@ function getDisciplineLabel(value) {
 }
 
 function disciplineForDate(state, date) {
-  const tasks = state.tasks.filter((t) => t.date === date);
+  const tasks = getTasksForDate(state, date);
   const habits = state.habits;
   const taskPercent = tasks.length ? (tasks.filter((t) => t.status === 'done').length / tasks.length) * 100 : 0;
   const habitPercent = habits.length ? (habits.filter((h) => (h.logs[date] || 0) >= h.target).length / habits.length) * 100 : 0;
@@ -513,11 +521,12 @@ function disciplineForDate(state, date) {
 
 function buildFullHistory(state) {
   const today = todayISO();
+  const todayTasks = getTasksForDate(state, today);
   const todayEntry = {
     date: today,
     discipline: disciplineForDate(state, today),
-    tasksDone: state.tasks.filter((t) => t.date === today && t.status === 'done').length,
-    tasksTotal: state.tasks.filter((t) => t.date === today).length,
+    tasksDone: todayTasks.filter((t) => t.status === 'done').length,
+    tasksTotal: todayTasks.length,
   };
   const filtered = state.history.filter((h) => h.date !== today);
   return [...filtered, todayEntry].sort((a, b) => a.date.localeCompare(b.date));
@@ -529,9 +538,104 @@ function getDateRange(lastDays) {
 }
 const getUpcomingRoutineDates = () =>
   Array.from({ length: 6 }, (_, idx) => offsetDate(todayISO(), idx + 1));
+const getRoutineWindowDates = (length = 7) =>
+  Array.from({ length }, (_, idx) => offsetDate(todayISO(), idx));
 
-// Datas da semana atual (últimos 7 dias incluindo hoje)
-const weekDates = getDateRange(7);
+const WEEKDAY_ORDER = [0, 1, 2, 3, 4, 5, 6];
+const WEEKDAY_LABELS = {
+  'PT-BR': ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'],
+  'EN-US': ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'],
+};
+
+function weekdayLabel(day, locale = 'PT-BR') {
+  return (WEEKDAY_LABELS[locale] || WEEKDAY_LABELS['PT-BR'])[day] || '';
+}
+
+function getWeekdayFromISODate(isoDate) {
+  return parseISODateLocal(isoDate).getDay();
+}
+
+function normalizeRepeatDays(days) {
+  if (!Array.isArray(days)) return [];
+  return [...new Set(days.map((day) => Number(day)).filter((day) => Number.isInteger(day) && day >= 0 && day <= 6))].sort((a, b) => a - b);
+}
+
+function isRecurringTask(task) {
+  return normalizeRepeatDays(task?.repeatDays).length > 0;
+}
+
+function normalizeTaskRecord(task) {
+  if (!task || typeof task !== 'object') return task;
+  return {
+    ...task,
+    date: task.date || todayISO(),
+    time: normalizeTaskTimeInput(task.time || ''),
+    repeatDays: normalizeRepeatDays(task.repeatDays),
+    occurrenceStatus: task.occurrenceStatus && typeof task.occurrenceStatus === 'object' ? task.occurrenceStatus : {},
+    subtasks: Array.isArray(task.subtasks) ? task.subtasks : [],
+  };
+}
+
+function taskMatchesDate(task, date) {
+  const normalizedTask = normalizeTaskRecord(task);
+  if (!normalizedTask) return false;
+  if (isRecurringTask(normalizedTask)) {
+    return normalizedTask.date <= date && normalizedTask.repeatDays.includes(getWeekdayFromISODate(date));
+  }
+  return normalizedTask.date === date;
+}
+
+function getTaskStatusForDate(task, date) {
+  const normalizedTask = normalizeTaskRecord(task);
+  if (!normalizedTask) return 'pending';
+  if (isRecurringTask(normalizedTask)) {
+    return normalizedTask.occurrenceStatus?.[date] || normalizedTask.status || 'pending';
+  }
+  return normalizedTask.status || 'pending';
+}
+
+function setTaskStatusForDate(task, date, status) {
+  const normalizedTask = normalizeTaskRecord(task);
+  if (isRecurringTask(normalizedTask)) {
+    return {
+      ...normalizedTask,
+      occurrenceStatus: {
+        ...(normalizedTask.occurrenceStatus || {}),
+        [date]: status,
+      },
+    };
+  }
+  return { ...normalizedTask, status };
+}
+
+function materializeTaskForDate(task, date) {
+  const normalizedTask = normalizeTaskRecord(task);
+  return {
+    ...normalizedTask,
+    effectiveDate: date,
+    status: getTaskStatusForDate(normalizedTask, date),
+    isRecurringOccurrence: isRecurringTask(normalizedTask),
+  };
+}
+
+function getTasksForDate(state, date) {
+  return sortTasksByTime(
+    (state.tasks || [])
+      .map((task) => normalizeTaskRecord(task))
+      .filter((task) => taskMatchesDate(task, date))
+      .map((task) => materializeTaskForDate(task, date))
+  );
+}
+
+function reorderListByIds(list, draggedId, targetId) {
+  const fromIndex = list.findIndex((item) => item.id === draggedId);
+  const toIndex = list.findIndex((item) => item.id === targetId);
+  if (fromIndex < 0 || toIndex < 0 || fromIndex === toIndex) return list;
+  const next = [...list];
+  const [moved] = next.splice(fromIndex, 1);
+  next.splice(toIndex, 0, moved);
+  return next;
+}
 
 function cls(...parts) { return parts.filter(Boolean).join(' '); }
 function toastId() { return Math.random().toString(36).slice(2, 8); }
@@ -546,34 +650,6 @@ function useToast() {
   return { items, push };
 }
 
-// ── HOOK: Drag and Drop para reordenar lista ─────────────────────────
-function useDragReorder(items, onReorder) {
-  const dragIndex = useRef(null);
-  const dragOverIndex = useRef(null);
-
-  const handleDragStart = useCallback((index) => {
-    dragIndex.current = index;
-  }, []);
-
-  const handleDragEnter = useCallback((index) => {
-    dragOverIndex.current = index;
-  }, []);
-
-  const handleDragEnd = useCallback(() => {
-    const from = dragIndex.current;
-    const to = dragOverIndex.current;
-    if (from !== null && to !== null && from !== to) {
-      const reordered = [...items];
-      const [removed] = reordered.splice(from, 1);
-      reordered.splice(to, 0, removed);
-      onReorder(reordered);
-    }
-    dragIndex.current = null;
-    dragOverIndex.current = null;
-  }, [items, onReorder]);
-
-  return { handleDragStart, handleDragEnter, handleDragEnd };
-}
 
 // ── OUROBOROS RING ───────────────────────────────────────────────────
 function OuroborosRing({ value, tone }) {
@@ -622,11 +698,13 @@ function OuroborosRing({ value, tone }) {
 
         const avg = (d[i] + d[i + 1] + d[i + 2]) / 3;
 
+        // branco quase total vira transparente
         if (avg >= 245) {
           d[i + 3] = 0;
           continue;
         }
 
+        // cinza claro vira traço suave
         if (avg >= 205) {
           const ink = (245 - avg) / 40;
           d[i] = 0;
@@ -636,6 +714,7 @@ function OuroborosRing({ value, tone }) {
           continue;
         }
 
+        // traço escuro vira preto
         d[i] = 0;
         d[i + 1] = 0;
         d[i + 2] = 0;
@@ -680,10 +759,14 @@ function OuroborosRing({ value, tone }) {
       const cx = displaySize / 2;
       const cy = displaySize / 2;
 
+      // ajuste fino do anel
       const outerR = displaySize * 0.70;
       const innerR = displaySize * 0.200;
 
+      // começo do progresso perto da cabeça
       const trackStartDeg = -110;
+
+      // arco útil da cobra (deixa o gap do rabo sem preencher)
       const trackSweepDeg = 360;
 
       const start = (trackStartDeg * Math.PI) / 180;
@@ -691,11 +774,13 @@ function OuroborosRing({ value, tone }) {
       const pct = Math.max(0, Math.min(100, value)) / 100;
       const activeSweep = totalSweep * pct;
 
+      // base apagada da cobra toda
       ctx.save();
       ctx.globalAlpha = 0.20;
       ctx.drawImage(processedRef.current, 0, 0, displaySize, displaySize);
       ctx.restore();
 
+      // parte ativa em formato de arco, não pizza
       if (activeSweep > 0.0001) {
         ctx.save();
 
@@ -807,38 +892,41 @@ export default function DisciplinaTotalApp() {
   const [pomodoroLinkNameDraft, setPomodoroLinkNameDraft] = useState('');
   const [pomodoroUrlDraft, setPomodoroUrlDraft] = useState('');
   const [historyDate, setHistoryDate] = useState(todayISO());
+  const [routineView, setRoutineView] = useState('day');
+  const [draggingHabitId, setDraggingHabitId] = useState(null);
+  const [habitDropTargetId, setHabitDropTargetId] = useState(null);
   const fileRef = useRef(null);
   const bgUploadRef = useRef(null);
   const toast = useToast();
 
   async function handleCloudUpload() {
-    const key = String(syncKey || '').trim();
+  const key = String(syncKey || '').trim();
 
-    if (!key) {
-      toast.push(locale === 'EN-US' ? 'Enter a sync code' : 'Informe um código de sincronização');
-      return;
-    }
-
-    if (!isCloudSyncConfigured()) {
-      toast.push(locale === 'EN-US' ? 'Supabase not configured' : 'Supabase não configurado');
-      return;
-    }
-
-    try {
-      setCloudSyncBusy(true);
-      await pushStateToCloud(key, state);
-      toast.push(
-        locale === 'EN-US' ? 'Sent to cloud successfully' : 'Enviado para a nuvem com sucesso'
-      );
-    } catch (err) {
-      toast.push(
-        locale === 'EN-US' ? 'Cloud upload failed' : 'Falha ao enviar para a nuvem',
-        err?.message || ''
-      );
-    } finally {
-      setCloudSyncBusy(false);
-    }
+  if (!key) {
+    toast.push(locale === 'EN-US' ? 'Enter a sync code' : 'Informe um código de sincronização');
+    return;
   }
+
+  if (!isCloudSyncConfigured()) {
+    toast.push(locale === 'EN-US' ? 'Supabase not configured' : 'Supabase não configurado');
+    return;
+  }
+
+  try {
+    setCloudSyncBusy(true);
+    await pushStateToCloud(key, state);
+    toast.push(
+      locale === 'EN-US' ? 'Sent to cloud successfully' : 'Enviado para a nuvem com sucesso'
+    );
+  } catch (err) {
+    toast.push(
+      locale === 'EN-US' ? 'Cloud upload failed' : 'Falha ao enviar para a nuvem',
+      err?.message || ''
+    );
+  } finally {
+    setCloudSyncBusy(false);
+  }
+}
 
   async function handleCloudDownload() {
     const key = String(syncKey || '').trim();
@@ -896,11 +984,9 @@ export default function DisciplinaTotalApp() {
     if (!storageReady) return;
     saveState(state);
   }, [state, storageReady]);
-
   useEffect(() => {
     setWeeklyGoalsDraft((state.settings.weeklyGoals || []).join('\n'));
   }, [state.settings.weeklyGoals]);
-
   useEffect(() => {
     if (!pomodoroRunning) return;
     const t = setInterval(() => {
@@ -928,19 +1014,25 @@ export default function DisciplinaTotalApp() {
   const copy = getCopy(locale);
   const backgroundValue = usingImageBackground ? `url(${state.appearance.backgroundImage})` : themeGradients[state.appearance.themeMode || 'dark'];
   const fullHistory = useMemo(() => buildFullHistory(state), [state]);
+  const weekDates = getDateRange(7);
   const upcomingDates = getUpcomingRoutineDates();
+  const routineWindowDates = getRoutineWindowDates(7);
   const weekSeries = weekDates.map((d) => ({ label: formatShort(d, locale), raw: d, disciplina: disciplineForDate(state, d) }));
   const monthSeries = getDateRange(30).map((d) => ({ label: formatShort(d, locale), raw: d, disciplina: disciplineForDate(state, d) }));
 
-  const todayTasksRaw = state.tasks.filter((t) => t.date === todayISO());
-  // ── CORREÇÃO: aplicar sortTasksByTime corretamente ────────────────
+  const taskMatchesSearch = (task) => {
+    const term = search.trim().toLowerCase();
+    if (!term) return true;
+    return String(task.title || '').toLowerCase().includes(term) || String(task.description || '').toLowerCase().includes(term);
+  };
+
+  const todayTasksRaw = getTasksForDate(state, todayISO());
   const todayTasks = sortTasksByTime(todayTasksRaw);
-  const filteredTasks = sortTasksByTime(
-    todayTasksRaw.filter((task) =>
-      task.title.toLowerCase().includes(search.toLowerCase()) ||
-      (task.description || '').toLowerCase().includes(search.toLowerCase())
-    )
-  );
+  const filteredTasks = sortTasksByTime(todayTasks.filter(taskMatchesSearch));
+  const routineWeekBlocks = routineWindowDates.map((date) => ({
+    date,
+    tasks: getTasksForDate(state, date).filter(taskMatchesSearch),
+  }));
 
   const todayDiscipline = disciplineForDate(state, todayISO());
   const disciplineMeta = getDisciplineLabel(todayDiscipline);
@@ -958,71 +1050,79 @@ export default function DisciplinaTotalApp() {
   })();
   const lastDay = fullHistory[fullHistory.length - 2];
   const delta = lastDay ? todayDiscipline - lastDay.discipline : 0;
-  const top3 = sortTasksByTime([...todayTasks].sort((a, b) => priorityValue(b.priority) - priorityValue(a.priority)).slice(0, 3));
-  const weeklyGoals = (state.settings.weeklyGoals || []).map((goal) => goal.trim()).filter(Boolean);
-  const hasWeeklyGoals = weeklyGoals.length > 0;
-  const todayCompletedHabits = state.habits.filter((habit) => (habit.logs[todayISO()] || 0) >= Math.max(1, Number(habit.target || 1))).length;
-  const weekTasks = state.tasks.filter((task) => weekDates.includes(task.date));
-  const weekDoneTasks = weekTasks.filter((task) => task.status === 'done').length;
-  const weekTotalTasks = weekTasks.length;
-  const weekCompletionRate = percentage(weekTotalTasks ? (weekDoneTasks / weekTotalTasks) * 100 : 0);
-  const daysAboveGoal = weekSeries.filter((item) => item.disciplina >= state.settings.dailyGoal).length;
-  const bestWeekDay = [...weekSeries].sort((a, b) => b.disciplina - a.disciplina)[0] || null;
-  const worstWeekDay = [...weekSeries].sort((a, b) => a.disciplina - b.disciplina)[0] || null;
-  const nextPendingTask = todayTasks.find((task) => task.status !== 'done') || null;
-  const weeklyTaskFlow = weekDates.map((date) => {
-    const tasksForDay = sortTasksByTime(state.tasks.filter((task) => task.date === date));
-    const doneForDay = tasksForDay.filter((task) => task.status === 'done').length;
+const top3 = sortTasksByTime([...todayTasks].sort((a, b) => priorityValue(b.priority) - priorityValue(a.priority)).slice(0, 3));
+const weeklyGoals = (state.settings.weeklyGoals || []).map((goal) => goal.trim()).filter(Boolean);
+const hasWeeklyGoals = weeklyGoals.length > 0;
+const todayCompletedHabits = state.habits.filter((habit) => (habit.logs[todayISO()] || 0) >= Math.max(1, Number(habit.target || 1))).length;
+const weekTasks = weekDates.flatMap((date) => getTasksForDate(state, date));
+const weekDoneTasks = weekTasks.filter((task) => task.status === 'done').length;
+const weekTotalTasks = weekTasks.length;
+const weekCompletionRate = percentage(weekTotalTasks ? (weekDoneTasks / weekTotalTasks) * 100 : 0);
+const daysAboveGoal = weekSeries.filter((item) => item.disciplina >= state.settings.dailyGoal).length;
+const bestWeekDay = [...weekSeries].sort((a, b) => b.disciplina - a.disciplina)[0] || null;
+const worstWeekDay = [...weekSeries].sort((a, b) => a.disciplina - b.disciplina)[0] || null;
+const nextPendingTask = todayTasks.find((task) => task.status !== 'done') || null;
+const weeklyTaskFlow = weekDates.map((date) => {
+  const tasksForDay = getTasksForDate(state, date);
+  const doneForDay = tasksForDay.filter((task) => task.status === 'done').length;
+  return {
+    label: formatShort(date),
+    raw: date,
+    abertas: tasksForDay.length,
+    concluidas: doneForDay,
+  };
+});
+const priorityCompletionData = ['crítica', 'alta', 'média', 'baixa']
+  .map((priority) => {
+    const items = weekTasks.filter((task) => task.priority === priority);
+    const total = items.length;
+    const entregues = items.filter((task) => task.status === 'done').length;
     return {
-      label: formatShort(date),
-      raw: date,
-      abertas: tasksForDay.length,
-      concluidas: doneForDay,
+      name: priority,
+      total,
+      entregues,
+      taxa: percentage(total ? (entregues / total) * 100 : 0),
     };
-  });
-  const priorityCompletionData = ['crítica', 'alta', 'média', 'baixa']
-    .map((priority) => {
-      const items = weekTasks.filter((task) => task.priority === priority);
-      const total = items.length;
-      const entregues = items.filter((task) => task.status === 'done').length;
-      return {
-        name: priority,
-        total,
-        entregues,
-        taxa: percentage(total ? (entregues / total) * 100 : 0),
-      };
-    })
-    .filter((item) => item.total > 0);
-  const habitWindow = getDateRange(14);
-  const habitConsistencyData = state.habits
-    .map((habit) => {
-      const doneDays = habitWindow.filter((date) => (habit.logs[date] || 0) >= Math.max(1, Number(habit.target || 1))).length;
-      return {
-        name: habit.title.length > 18 ? `${habit.title.slice(0, 18)}…` : habit.title,
-        consistencia: percentage((doneDays / habitWindow.length) * 100),
-        dias: doneDays,
-      };
-    })
-    .sort((a, b) => b.consistencia - a.consistencia)
-    .slice(0, 6);
-  const chartGrid = isLight ? 'rgba(15,23,42,0.08)' : 'rgba(255,255,255,0.08)';
-  const chartAxis = isLight ? 'rgba(15,23,42,0.48)' : 'rgba(255,255,255,0.45)';
-  const mutedBarColor = isLight ? '#cbd5e1' : 'rgba(255,255,255,0.22)';
+  })
+  .filter((item) => item.total > 0);
+const habitWindow = getDateRange(14);
+const habitConsistencyData = state.habits
+  .map((habit) => {
+    const doneDays = habitWindow.filter((date) => (habit.logs[date] || 0) >= Math.max(1, Number(habit.target || 1))).length;
+    return {
+      name: habit.title.length > 18 ? `${habit.title.slice(0, 18)}…` : habit.title,
+      consistencia: percentage((doneDays / habitWindow.length) * 100),
+      dias: doneDays,
+    };
+  })
+  .sort((a, b) => b.consistencia - a.consistencia)
+  .slice(0, 6);
+const chartGrid = isLight ? 'rgba(15,23,42,0.08)' : 'rgba(255,255,255,0.08)';
+const chartAxis = isLight ? 'rgba(15,23,42,0.48)' : 'rgba(255,255,255,0.45)';
+const mutedBarColor = isLight ? '#cbd5e1' : 'rgba(255,255,255,0.22)';
 
-  function updateState(updater) { setState((prev) => updater(prev)); }
+  if (!storageReady) {
+    return <LoadingScreen locale={locale} backgroundValue={backgroundValue} overlay={state.appearance.overlay} />;
+  }
 
-  function setTaskStatus(taskId, status) {
+function updateState(updater) { setState((prev) => updater(prev)); }
+
+  function setTaskStatus(taskId, status, taskDate = todayISO()) {
     updateState((prev) => ({
       ...prev,
       tasks: prev.tasks.map((t) => {
         if (t.id !== taskId) return t;
-        const subtasks = Array.isArray(t.subtasks) ? t.subtasks : [];
-        if (!subtasks.length) return { ...t, status };
-        if (status === 'done') return { ...t, status: 'done', subtasks: subtasks.map((s) => ({ ...s, done: true })) };
-        return { ...t, status, subtasks: subtasks.map((s) => ({ ...s, done: false })) };
+        const normalizedTask = normalizeTaskRecord(t);
+        if (isRecurringTask(normalizedTask)) {
+          return setTaskStatusForDate(normalizedTask, taskDate, status);
+        }
+        const subtasks = Array.isArray(normalizedTask.subtasks) ? normalizedTask.subtasks : [];
+        if (!subtasks.length) return { ...normalizedTask, status };
+        if (status === 'done') return { ...normalizedTask, status: 'done', subtasks: subtasks.map((s) => ({ ...s, done: true })) };
+        return { ...normalizedTask, status, subtasks: subtasks.map((s) => ({ ...s, done: false })) };
       }),
     }));
-    toast.push(status === 'done' ? 'Tarefa concluída' : 'Status atualizado');
+    toast.push(status === 'done' ? (locale === 'EN-US' ? 'Task completed' : 'Tarefa concluída') : (locale === 'EN-US' ? 'Status updated' : 'Status atualizado'));
   }
 
   function toggleSubtask(taskId, subtaskId) {
@@ -1049,35 +1149,46 @@ export default function DisciplinaTotalApp() {
     }));
   }
 
-  // ── NOVO: reordenar hábitos via drag ─────────────────────────────
-  function reorderHabits(newHabits) {
-    updateState((prev) => ({ ...prev, habits: newHabits }));
-  }
-
   function removeTask(taskId) { updateState((prev) => ({ ...prev, tasks: prev.tasks.filter((t) => t.id !== taskId) })); toast.push(locale === 'EN-US' ? 'Task removed' : 'Tarefa removida'); }
   function duplicateTask(task) {
-    const copy = { ...task, id: uid(), title: `${task.title} (cópia)` };
-    updateState((prev) => ({ ...prev, tasks: [...prev.tasks, copy] }));
-    toast.push('Tarefa duplicada');
+    const { effectiveDate, isRecurringOccurrence, ...taskBase } = normalizeTaskRecord(task);
+    const copyTask = {
+      ...taskBase,
+      id: uid(),
+      title: `${task.title} (${locale === 'EN-US' ? 'copy' : 'cópia'})`,
+      occurrenceStatus: { ...(taskBase.occurrenceStatus || {}) },
+    };
+    updateState((prev) => ({ ...prev, tasks: [...prev.tasks, copyTask] }));
+    toast.push(locale === 'EN-US' ? 'Task duplicated' : 'Tarefa duplicada');
   }
 
   function openNewTask() {
-    setEditingTask({ id: uid(), title: '', description: '', category: 'pessoal', priority: 'média', time: '', status: 'pending', date: todayISO(), color: priorityColor('média'), subtasks: [] });
+    setEditingTask({ id: uid(), title: '', description: '', category: 'pessoal', priority: 'média', time: '', status: 'pending', date: todayISO(), color: priorityColor('média'), subtasks: [], repeatDays: [], occurrenceStatus: {} });
     setShowTaskModal(true);
   }
 
   function saveTask(task) {
-    const cleanedSubtasks = (task.subtasks || []).filter((s) => (s.title || '').trim()).map((s) => ({ ...s, title: s.title.trim() }));
+    const { effectiveDate, isRecurringOccurrence, ...taskBase } = task;
+    const cleanedSubtasks = (taskBase.subtasks || []).filter((s) => (s.title || '').trim()).map((s) => ({ ...s, title: s.title.trim() }));
+    const repeatDays = normalizeRepeatDays(taskBase.repeatDays);
     const normalizedTask = {
-      ...task, color: priorityColor(task.priority), subtasks: cleanedSubtasks,
-      status: cleanedSubtasks.length && cleanedSubtasks.every((s) => s.done) ? 'done' : task.status === 'done' && cleanedSubtasks.length ? 'pending' : task.status,
+      ...taskBase,
+      date: taskBase.date || todayISO(),
+      time: normalizeTaskTimeInput(taskBase.time || ''),
+      color: priorityColor(taskBase.priority),
+      subtasks: cleanedSubtasks,
+      repeatDays,
+      occurrenceStatus: taskBase.occurrenceStatus && typeof taskBase.occurrenceStatus === 'object' ? taskBase.occurrenceStatus : {},
+      status: repeatDays.length
+        ? (taskBase.status || 'pending')
+        : (cleanedSubtasks.length && cleanedSubtasks.every((s) => s.done) ? 'done' : taskBase.status === 'done' && cleanedSubtasks.length ? 'pending' : (taskBase.status || 'pending')),
     };
     updateState((prev) => {
       const exists = prev.tasks.some((t) => t.id === normalizedTask.id);
       const tasks = exists ? prev.tasks.map((t) => (t.id === normalizedTask.id ? normalizedTask : t)) : [...prev.tasks, normalizedTask];
       return { ...prev, tasks };
     });
-    setShowTaskModal(false); setEditingTask(null); toast.push('Tarefa salva');
+    setShowTaskModal(false); setEditingTask(null); toast.push(locale === 'EN-US' ? 'Task saved' : 'Tarefa salva');
   }
 
   function openNewHabit() {
@@ -1101,6 +1212,36 @@ export default function DisciplinaTotalApp() {
     toast.push(locale === 'EN-US' ? 'Habit removed' : 'Hábito removido');
   }
 
+  function reorderHabits(draggedId, targetId) {
+    if (!draggedId || !targetId || draggedId === targetId) return;
+    updateState((prev) => ({ ...prev, habits: reorderListByIds(prev.habits, draggedId, targetId) }));
+    toast.push(locale === 'EN-US' ? 'Habits reordered' : 'Hábitos reordenados');
+  }
+
+  function handleHabitDragStart(habitId) {
+    setDraggingHabitId(habitId);
+    setHabitDropTargetId(habitId);
+  }
+
+  function handleHabitDragOver(event, habitId) {
+    event.preventDefault();
+    if (!draggingHabitId || draggingHabitId === habitId) return;
+    setHabitDropTargetId(habitId);
+  }
+
+  function handleHabitDrop(habitId) {
+    if (draggingHabitId && draggingHabitId !== habitId) {
+      reorderHabits(draggingHabitId, habitId);
+    }
+    setDraggingHabitId(null);
+    setHabitDropTargetId(null);
+  }
+
+  function handleHabitDragEnd() {
+    setDraggingHabitId(null);
+    setHabitDropTargetId(null);
+  }
+
   function exportData() {
     const blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -1111,7 +1252,11 @@ export default function DisciplinaTotalApp() {
   function importData(file) {
     const reader = new FileReader();
     reader.onload = () => {
-      try { const parsed = JSON.parse(String(reader.result)); setState(parsed); toast.push(locale === 'EN-US' ? 'Backup imported' : 'Backup importado'); }
+      try {
+        const parsed = JSON.parse(String(reader.result));
+        setState(buildPersistedState(sampleState(), parsed));
+        toast.push(locale === 'EN-US' ? 'Backup imported' : 'Backup importado');
+      }
       catch { toast.push(locale === 'EN-US' ? 'Invalid file' : 'Arquivo inválido'); }
     };
     reader.readAsText(file);
@@ -1189,287 +1334,377 @@ export default function DisciplinaTotalApp() {
   }
 
   const pageBody = (() => {
-    if (page === 'dashboard') {
-      return (
-        <div className="dashboard-shell">
-          <div className="dashboard-top">
-            <section className="glass hero-card dashboard-hero">
-              <div>
-                <div className="eyebrow"><Sparkles size={14} /> {locale === 'EN-US' ? `Welcome back, ${state.settings.userName}` : `Bem-vindo de volta, ${state.settings.userName}`}</div>
-                <h2>{locale === 'EN-US' ? `Your discipline today is ${todayDiscipline}%` : `Sua disciplina de hoje está em ${todayDiscipline}%`}</h2>
-                <p>{locale === 'EN-US' ? <>"Whoever lives only for the instant runs away from oneself." — <strong>Friedrich Nietzsche</strong>.</> : <>"Quem vive só para o instante foge de si mesmo." — <strong>Friedrich Nietzsche</strong>.</>}</p>
-                <div className="hero-tags">
-                  <span className={cls('pill', disciplineMeta.tone)}>{disciplineMeta.text}</span>
-                  <span className="pill">{locale === 'EN-US' ? 'Goal' : 'Meta'}: {state.settings.dailyGoal}%</span>
-                  <span className="pill">{locale === 'EN-US' ? 'Streak' : 'Sequência'}: {streak} {locale === 'EN-US' ? 'days' : 'dias'}</span>
-                </div>
-                <div className="progress-block">
-                  <div className="progress-head"><span>{locale === 'EN-US' ? 'Day progress' : 'Progresso do dia'}</span><strong>{todayDiscipline}%</strong></div>
-                  <div className="progress-track"><div className="progress-fill" style={{ width: `${todayDiscipline}%` }} /></div>
-                </div>
-              </div>
-              <div className="hero-metrics">
-                <Metric icon={<ListTodo size={16} />} label={locale === 'EN-US' ? 'Tasks today' : 'Tarefas do dia'} value={todayTasks.length} />
-                <Metric icon={<CheckCircle2 size={16} />} label={locale === 'EN-US' ? 'Completed' : 'Concluídas'} value={doneCount} />
-                <Metric icon={<Target size={16} />} label={locale === 'EN-US' ? 'Completed habits' : 'Hábitos batidos'} value={`${todayCompletedHabits}/${state.habits.length}`} />
-                <Metric icon={<Trophy size={16} />} label={locale === 'EN-US' ? 'Week average' : 'Média da semana'} value={`${weekAverage}%`} />
-                <Metric icon={delta >= 0 ? <TrendingUp size={16} /> : <TrendingDown size={16} />} label={locale === 'EN-US' ? 'Today vs yesterday' : 'Hoje vs ontem'} value={`${delta >= 0 ? '+' : ''}${delta}%`} />
-              </div>
-            </section>
-
-            <section className="glass section-card centered dashboard-ring-card">
-              <div className="ring-card-top">
-                <div className="section-title ring-title">{locale === 'EN-US' ? 'Discipline arc' : 'Arco de disciplina'}</div>
-                <OuroborosRing value={todayDiscipline} tone={disciplineMeta.tone} />
-                <span className={cls('pill', disciplineMeta.tone)} style={{ marginTop: 4 }}>{disciplineMeta.text}</span>
-              </div>
-            </section>
-          </div>
-
-          <div className="dashboard-main-grid">
-            <section className="glass section-card dashboard-routine-card">
-              <SectionHeader
-                title={locale === 'EN-US' ? 'Today routine' : 'Rotina de hoje'}
-                action={<button className="ghost-btn" onClick={() => setPage('routine')}>{locale === 'EN-US' ? 'See all' : 'Ver tudo'}</button>}
-              />
-              {todayTasks.length ? (
-                <div className="routine-preview-list">
-                  {todayTasks.map((task) => <TaskMiniRow key={task.id} task={task} locale={locale} onSetTaskStatus={setTaskStatus} />)}
-                </div>
-              ) : (
-                <div className="empty-state-card">
-                  <div className="row-title">{locale === 'EN-US' ? 'Nothing scheduled for today.' : 'Nada programado para hoje.'}</div>
-                  <div className="row-sub">{locale === 'EN-US' ? 'Create a task and your dashboard starts to make sense right away.' : 'Crie uma tarefa e seu dashboard já começa a fazer sentido.'}</div>
-                </div>
-              )}
-            </section>
-
-            <section className="glass section-card">
-              <SectionHeader
-                title={locale === 'EN-US' ? 'Habits today' : 'Hábitos do dia'}
-                subtitle={locale === 'EN-US' ? `${todayCompletedHabits}/${state.habits.length} hit the goal today.` : `${todayCompletedHabits}/${state.habits.length} bateram a meta hoje.`}
-                action={<button className="ghost-btn" onClick={() => setPage('habits')}>{locale === 'EN-US' ? 'Open habits' : 'Abrir hábitos'}</button>}
-              />
-              <div className="stack">
-                {state.habits.slice(0, 5).map((habit) => {
-                  const value = habit.logs[todayISO()] || 0;
-                  const pct = Math.min(100, Math.round((value / habit.target) * 100));
-                  return (
-                    <div key={habit.id} className="mini-habit" style={{ '--habit-color': habit.color, '--habit-color-soft': alphaColor(habit.color, '16') }}>
-                      <div><div className="row-title">{habit.title}</div><div className="row-sub">{value}/{habit.target} {locale === 'EN-US' ? 'today' : 'hoje'}</div></div>
-                      <div className="habit-stepper">
-                        <button className="icon-btn" onClick={() => incrementHabit(habit.id, -1)}><ChevronDown size={16} /></button>
-                        <strong>{value}</strong>
-                        <button className="icon-btn" onClick={() => incrementHabit(habit.id, 1)}><ChevronUp size={16} /></button>
-                      </div>
-                      <div className="progress-track slim"><div className="progress-fill" style={{ width: `${pct}%`, background: `linear-gradient(135deg, ${habit.color}, ${alphaColor(habit.color, 'CC')})` }} /></div>
-                    </div>
-                  );
-                })}
-              </div>
-            </section>
-
-            <div className="dashboard-side-stack">
-              <section className="glass section-card dashboard-quick-card">
-                <SectionHeader title={locale === 'EN-US' ? 'Quick add' : 'Adição rápida'} subtitle={locale === 'EN-US' ? 'Throw a task into the system in seconds.' : 'Jogue uma tarefa no sistema em segundos.'} />
-                <div className="quick-add-vertical">
-                  <input
-                    value={editingTask?.title || ''}
-                    onChange={(e) => setEditingTask({ ...(editingTask || {}), title: e.target.value })}
-                    placeholder={locale === 'EN-US' ? 'Ex.: review goals for 15 minutes' : 'Ex.: revisar metas por 15 minutos'}
-                  />
-                  <button className="primary-btn full-btn" onClick={() => {
-                    const title = (editingTask?.title || '').trim();
-                    if (!title) return;
-                    const task = { id: uid(), title, description: '', category: 'pessoal', priority: 'média', time: '', status: 'pending', date: todayISO(), subtasks: [] };
-                    updateState((prev) => ({ ...prev, tasks: [...prev.tasks, task] }));
-                    setEditingTask(null); toast.push(locale === 'EN-US' ? 'Quickly added' : 'Adicionado rapidamente');
-                  }}>
-                    <Plus size={16} /> {locale === 'EN-US' ? 'Add' : 'Adicionar'}
-                  </button>
-                </div>
-              </section>
-
-              <section className="glass section-card dashboard-weekly-card">
-                <div className="section-head-row">
-                  <div>
-                    <div className="section-title with-icon"><Trophy size={16} /> {locale === 'EN-US' ? 'Weekly panel' : 'Painel semanal'}</div>
-                    <div className="section-subtitle">{locale === 'EN-US' ? 'Useful week summary, no dead space.' : 'Resumo útil da semana, sem espaço morto.'}</div>
-                  </div>
-                  <span className="pill">{daysAboveGoal}/7 {locale === 'EN-US' ? 'above goal' : 'acima da meta'}</span>
-                </div>
-
-                {hasWeeklyGoals ? (
-                  <div className="stack small-gap weekly-goal-list">
-                    {weeklyGoals.map((goal, idx) => (
-                      <div key={idx} className="goal-chip goal-chip-inline">
-                        <span className="goal-chip-index">{idx + 1}</span>
-                        <span>{goal}</span>
-                      </div>
-                    ))}
-                  </div>
-                ) : null}
-
-                <div className="weekly-summary-grid">
-                  <MiniStat label={locale === 'EN-US' ? 'Week average' : 'Média da semana'} value={`${weekAverage}%`} />
-                  <MiniStat label={locale === 'EN-US' ? 'Execution' : 'Execução'} value={`${weekCompletionRate}%`} />
-                  <MiniStat label={locale === 'EN-US' ? 'Completed' : 'Concluídas'} value={`${weekDoneTasks}/${weekTotalTasks || 0}`} />
-                  <MiniStat label={locale === 'EN-US' ? 'Record' : 'Recorde'} value={`${record}%`} />
-                </div>
-
-                <div className="insight-list">
-                  {bestWeekDay ? (
-                    <div className="simple-card">
-                      <div className="row-title">{locale === 'EN-US' ? 'Best day' : 'Melhor dia'}</div>
-                      <div className="row-sub">{formatShort(bestWeekDay.raw, locale)} • {bestWeekDay.disciplina}% {locale === 'EN-US' ? 'discipline' : 'de disciplina'}</div>
-                    </div>
-                  ) : null}
-
-                  <div className="simple-card">
-                    <div className="row-title">{locale === 'EN-US' ? 'Week rhythm' : 'Ritmo da semana'}</div>
-                    <div className="row-sub">{locale === 'EN-US' ? `${daysAboveGoal} out of 7 days stayed above the daily goal.` : `${daysAboveGoal} de 7 dias ficaram acima da meta diária.`}</div>
-                  </div>
-
-                  {nextPendingTask ? (
-                    <div className="simple-card">
-                      <div className="row-title">{locale === 'EN-US' ? 'Next pending item' : 'Próxima pendência'}</div>
-                      <div className="row-sub">{nextPendingTask.title}{nextPendingTask.time ? ` • ${nextPendingTask.time}` : ''}</div>
-                    </div>
-                  ) : (
-                    <div className="simple-card">
-                      <div className="row-title">{locale === 'EN-US' ? 'Clean day' : 'Dia limpo'}</div>
-                      <div className="row-sub">
-                        {locale === "EN-US"
-                          ? `Everything in today's panel has already been marked as done.`
-                          : `Tudo que está no painel de hoje já foi marcado como feito.`}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </section>
+if (page === 'dashboard') {
+  return (
+    <div className="dashboard-shell">
+      <div className="dashboard-top">
+        <section className="glass hero-card dashboard-hero">
+          <div>
+            <div className="eyebrow"><Sparkles size={14} /> {locale === 'EN-US' ? `Welcome back, ${state.settings.userName}` : `Bem-vindo de volta, ${state.settings.userName}`}</div>
+            <h2>{locale === 'EN-US' ? `Your discipline today is ${todayDiscipline}%` : `Sua disciplina de hoje está em ${todayDiscipline}%`}</h2>
+            <p>{locale === 'EN-US' ? <>“Whoever lives only for the instant runs away from oneself.” — <strong>Friedrich Nietzsche</strong>.</> : <>“Quem vive só para o instante foge de si mesmo.” — <strong>Friedrich Nietzsche</strong>.</>}</p>
+            <div className="hero-tags">
+              <span className={cls('pill', disciplineMeta.tone)}>{disciplineMeta.text}</span>
+              <span className="pill">{locale === 'EN-US' ? 'Goal' : 'Meta'}: {state.settings.dailyGoal}%</span>
+              <span className="pill">{locale === 'EN-US' ? 'Streak' : 'Sequência'}: {streak} {locale === 'EN-US' ? 'days' : 'dias'}</span>
+            </div>
+            <div className="progress-block">
+              <div className="progress-head"><span>{locale === 'EN-US' ? 'Day progress' : 'Progresso do dia'}</span><strong>{todayDiscipline}%</strong></div>
+              <div className="progress-track"><div className="progress-fill" style={{ width: `${todayDiscipline}%` }} /></div>
             </div>
           </div>
+          <div className="hero-metrics">
+            <Metric icon={<ListTodo size={16} />} label={locale === 'EN-US' ? 'Tasks today' : 'Tarefas do dia'} value={todayTasks.length} />
+            <Metric icon={<CheckCircle2 size={16} />} label={locale === 'EN-US' ? 'Completed' : 'Concluídas'} value={doneCount} />
+            <Metric icon={<Target size={16} />} label={locale === 'EN-US' ? 'Completed habits' : 'Hábitos batidos'} value={`${todayCompletedHabits}/${state.habits.length}`} />
+            <Metric icon={<Trophy size={16} />} label={locale === 'EN-US' ? 'Week average' : 'Média da semana'} value={`${weekAverage}%`} />
+            <Metric icon={delta >= 0 ? <TrendingUp size={16} /> : <TrendingDown size={16} />} label={locale === 'EN-US' ? 'Today vs yesterday' : 'Hoje vs ontem'} value={`${delta >= 0 ? '+' : ''}${delta}%`} />
+          </div>
+        </section>
 
-          <div className="dashboard-grid-2">
-            <section className="glass section-card">
-              <SectionHeader title={locale === 'EN-US' ? 'Week at a glance' : 'Semana em linha'} subtitle={locale === 'EN-US' ? 'Real discipline swings over the last 7 days.' : 'Oscilação real da disciplina nos últimos 7 dias.'} />
-              <div className="chart-box compact-chart">
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={weekSeries}>
-                    <defs>
-                      <linearGradient id="weekFill" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor="var(--primary)" stopOpacity={0.55} />
-                        <stop offset="100%" stopColor="var(--primary)" stopOpacity={0.04} />
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid stroke={chartGrid} vertical={false} />
-                    <XAxis dataKey="label" stroke={chartAxis} tickLine={false} axisLine={false} />
-                    <YAxis stroke={chartAxis} tickLine={false} axisLine={false} />
-                    <Tooltip content={<ChartTooltip />} />
-                    <Area type="monotone" dataKey="disciplina" name="Disciplina" stroke="var(--primary)" fill="url(#weekFill)" strokeWidth={3} />
-                  </AreaChart>
-                </ResponsiveContainer>
-              </div>
-              <div className="chart-footer">
-                {bestWeekDay ? <span className="pill success">{locale === 'EN-US' ? 'Best' : 'Melhor'}: {formatShort(bestWeekDay.raw, locale)} • {bestWeekDay.disciplina}%</span> : null}
-                {worstWeekDay ? <span className="pill danger">{locale === 'EN-US' ? 'Weakest' : 'Mais fraco'}: {formatShort(worstWeekDay.raw, locale)} • {worstWeekDay.disciplina}%</span> : null}
-              </div>
-            </section>
+        <section className="glass section-card centered dashboard-ring-card">
+          <div className="ring-card-top">
+            <div className="section-title ring-title">{locale === 'EN-US' ? 'Discipline arc' : 'Arco de disciplina'}</div>
+            <OuroborosRing value={todayDiscipline} tone={disciplineMeta.tone} />
+            <span className={cls('pill', disciplineMeta.tone)} style={{ marginTop: 4 }}>{disciplineMeta.text}</span>
+          </div>
+        </section>
+      </div>
 
-            <section className="glass section-card">
-              <SectionHeader
-                title={locale === "EN-US" ? "Top 3 priorities" : "Top 3 prioridades"}
-                subtitle={
-                  locale === "EN-US"
-                    ? "What most supports the day's result."
-                    : "O que mais sustenta o resultado do dia."
-                }
-                action={
-                  <button className="ghost-btn" onClick={openNewTask}>
-                    <Plus size={16} /> {locale === "EN-US" ? "Task" : "Tarefa"}
-                  </button>
-                }
+      <div className="dashboard-main-grid">
+        <section className="glass section-card dashboard-routine-card">
+          <SectionHeader
+            title={locale === 'EN-US' ? 'Today routine' : 'Rotina de hoje'}
+            action={<button className="ghost-btn" onClick={() => setPage('routine')}>{locale === 'EN-US' ? 'See all' : 'Ver tudo'}</button>}
+          />
+          {todayTasks.length ? (
+            <div className="routine-preview-list">
+              {todayTasks.map((task) => <TaskMiniRow key={task.id} task={task} locale={locale} onSetTaskStatus={setTaskStatus} />)}
+            </div>
+          ) : (
+            <div className="empty-state-card">
+              <div className="row-title">{locale === 'EN-US' ? 'Nothing scheduled for today.' : 'Nada programado para hoje.'}</div>
+              <div className="row-sub">{locale === 'EN-US' ? 'Create a task and your dashboard starts to make sense right away.' : 'Crie uma tarefa e seu dashboard já começa a fazer sentido.'}</div>
+            </div>
+          )}
+        </section>
+
+        <section className="glass section-card">
+          <SectionHeader
+            title={locale === 'EN-US' ? 'Habits today' : 'Hábitos do dia'}
+            subtitle={locale === 'EN-US' ? `${todayCompletedHabits}/${state.habits.length} hit the goal today.` : `${todayCompletedHabits}/${state.habits.length} bateram a meta hoje.`}
+            action={<button className="ghost-btn" onClick={() => setPage('habits')}>{locale === 'EN-US' ? 'Open habits' : 'Abrir hábitos'}</button>}
+          />
+          <div className="stack">
+            {state.habits.slice(0, 5).map((habit) => {
+              const value = habit.logs[todayISO()] || 0;
+              const pct = Math.min(100, Math.round((value / habit.target) * 100));
+              return (
+                <div key={habit.id} className="mini-habit" style={{ '--habit-color': habit.color, '--habit-color-soft': alphaColor(habit.color, '16') }}>
+                  <div><div className="row-title">{habit.title}</div><div className="row-sub">{value}/{habit.target} {locale === 'EN-US' ? 'today' : 'hoje'}</div></div>
+                  <div className="habit-stepper">
+                    <button className="icon-btn" onClick={() => incrementHabit(habit.id, -1)}><ChevronDown size={16} /></button>
+                    <strong>{value}</strong>
+                    <button className="icon-btn" onClick={() => incrementHabit(habit.id, 1)}><ChevronUp size={16} /></button>
+                  </div>
+                  <div className="progress-track slim"><div className="progress-fill" style={{ width: `${pct}%`, background: `linear-gradient(135deg, ${habit.color}, ${alphaColor(habit.color, 'CC')})` }} /></div>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+
+        <div className="dashboard-side-stack">
+          <section className="glass section-card dashboard-quick-card">
+            <SectionHeader title={locale === 'EN-US' ? 'Quick add' : 'Adição rápida'} subtitle={locale === 'EN-US' ? 'Throw a task into the system in seconds.' : 'Jogue uma tarefa no sistema em segundos.'} />
+            <div className="quick-add-vertical">
+              <input
+                value={editingTask?.title || ''}
+                onChange={(e) => setEditingTask({ ...(editingTask || {}), title: e.target.value })}
+                placeholder={locale === 'EN-US' ? 'Ex.: review goals for 15 minutes' : 'Ex.: revisar metas por 15 minutos'}
               />
-              {top3.length ? (
-                <div className="stack">
-                  {top3.map((task, idx) => (
-                    <div key={task.id} className="priority-card">
-                      <div className="priority-index">{idx + 1}</div>
-                      <div className="priority-copy"><div className="row-title">{task.title}</div><div className="row-sub">{categoryLabel(task.category, locale)} • {priorityLabel(task.priority, locale)}</div></div>
-                      <span className={cls('priority-pill', task.priority)}>{priorityLabel(task.priority, locale)}</span>
-                    </div>
-                  ))}
+              <button className="primary-btn full-btn" onClick={() => {
+                const title = (editingTask?.title || '').trim();
+                if (!title) return;
+                const task = { id: uid(), title, description: '', category: 'pessoal', priority: 'média', time: '', status: 'pending', date: todayISO(), subtasks: [] };
+                updateState((prev) => ({ ...prev, tasks: [...prev.tasks, task] }));
+                setEditingTask(null); toast.push(locale === 'EN-US' ? 'Quickly added' : 'Adicionado rapidamente');
+              }}>
+                <Plus size={16} /> {locale === 'EN-US' ? 'Add' : 'Adicionar'}
+              </button>
+            </div>
+          </section>
+
+          <section className="glass section-card dashboard-weekly-card">
+            <div className="section-head-row">
+              <div>
+                <div className="section-title with-icon"><Trophy size={16} /> {locale === 'EN-US' ? 'Weekly panel' : 'Painel semanal'}</div>
+                <div className="section-subtitle">{locale === 'EN-US' ? 'Useful week summary, no dead space.' : 'Resumo útil da semana, sem espaço morto.'}</div>
+              </div>
+              <span className="pill">{daysAboveGoal}/7 {locale === 'EN-US' ? 'above goal' : 'acima da meta'}</span>
+            </div>
+
+            {hasWeeklyGoals ? (
+              <div className="stack small-gap weekly-goal-list">
+                {weeklyGoals.map((goal, idx) => (
+                  <div key={idx} className="goal-chip goal-chip-inline">
+                    <span className="goal-chip-index">{idx + 1}</span>
+                    <span>{goal}</span>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+
+            <div className="weekly-summary-grid">
+              <MiniStat label={locale === 'EN-US' ? 'Week average' : 'Média da semana'} value={`${weekAverage}%`} />
+              <MiniStat label={locale === 'EN-US' ? 'Execution' : 'Execução'} value={`${weekCompletionRate}%`} />
+              <MiniStat label={locale === 'EN-US' ? 'Completed' : 'Concluídas'} value={`${weekDoneTasks}/${weekTotalTasks || 0}`} />
+              <MiniStat label={locale === 'EN-US' ? 'Record' : 'Recorde'} value={`${record}%`} />
+            </div>
+
+            <div className="insight-list">
+              {bestWeekDay ? (
+                <div className="simple-card">
+                  <div className="row-title">{locale === 'EN-US' ? 'Best day' : 'Melhor dia'}</div>
+                  <div className="row-sub">{formatShort(bestWeekDay.raw, locale)} • {bestWeekDay.disciplina}% {locale === 'EN-US' ? 'discipline' : 'de disciplina'}</div>
+                </div>
+              ) : null}
+
+              <div className="simple-card">
+                <div className="row-title">{locale === 'EN-US' ? 'Week rhythm' : 'Ritmo da semana'}</div>
+                <div className="row-sub">{locale === 'EN-US' ? `${daysAboveGoal} out of 7 days stayed above the daily goal.` : `${daysAboveGoal} de 7 dias ficaram acima da meta diária.`}</div>
+              </div>
+
+              {nextPendingTask ? (
+                <div className="simple-card">
+                  <div className="row-title">{locale === 'EN-US' ? 'Next pending item' : 'Próxima pendência'}</div>
+                  <div className="row-sub">{nextPendingTask.title}{nextPendingTask.time ? ` • ${nextPendingTask.time}` : ''}</div>
                 </div>
               ) : (
-                <div className="empty-state-card">
-                  <div className="row-title">{locale === 'EN-US' ? 'No priorities defined.' : 'Sem prioridades definidas.'}</div>
-                  <div className="row-sub">{locale === 'EN-US' ? 'Add tasks and the ranking appears here automatically.' : 'Adicione tarefas e o ranking aparece aqui automaticamente.'}</div>
+                <div className="simple-card">
+                  <div className="row-title">{locale === 'EN-US' ? 'Clean day' : 'Dia limpo'}</div>
+                  <div className="row-sub">
+                    {locale === "EN-US"
+                      ? `Everything in today's panel has already been marked as done.`
+                      : `Tudo que está no painel de hoje já foi marcado como feito.`}
+                  </div>
                 </div>
               )}
-            </section>
-          </div>
+            </div>
+          </section>
         </div>
-      );
-    }
+      </div>
+
+      <div className="dashboard-grid-2">
+        <section className="glass section-card">
+          <SectionHeader title={locale === 'EN-US' ? 'Week at a glance' : 'Semana em linha'} subtitle={locale === 'EN-US' ? 'Real discipline swings over the last 7 days.' : 'Oscilação real da disciplina nos últimos 7 dias.'} />
+          <div className="chart-box compact-chart">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={weekSeries}>
+                <defs>
+                  <linearGradient id="weekFill" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="var(--primary)" stopOpacity={0.55} />
+                    <stop offset="100%" stopColor="var(--primary)" stopOpacity={0.04} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid stroke={chartGrid} vertical={false} />
+                <XAxis dataKey="label" stroke={chartAxis} tickLine={false} axisLine={false} />
+                <YAxis stroke={chartAxis} tickLine={false} axisLine={false} />
+                <Tooltip content={<ChartTooltip />} />
+                <Area type="monotone" dataKey="disciplina" name="Disciplina" stroke="var(--primary)" fill="url(#weekFill)" strokeWidth={3} />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+          <div className="chart-footer">
+            {bestWeekDay ? <span className="pill success">{locale === 'EN-US' ? 'Best' : 'Melhor'}: {formatShort(bestWeekDay.raw, locale)} • {bestWeekDay.disciplina}%</span> : null}
+            {worstWeekDay ? <span className="pill danger">{locale === 'EN-US' ? 'Weakest' : 'Mais fraco'}: {formatShort(worstWeekDay.raw, locale)} • {worstWeekDay.disciplina}%</span> : null}
+          </div>
+        </section>
+
+        <section className="glass section-card">
+          <SectionHeader
+              title={locale === "EN-US" ? "Top 3 priorities" : "Top 3 prioridades"}
+              subtitle={
+                locale === "EN-US"
+                  ? "What most supports the day's result."
+                  : "O que mais sustenta o resultado do dia."
+              }
+              action={
+                <button className="ghost-btn" onClick={openNewTask}>
+                  <Plus size={16} /> {locale === "EN-US" ? "Task" : "Tarefa"}
+                </button>
+              }
+          />
+          {top3.length ? (
+            <div className="stack">
+              {top3.map((task, idx) => (
+                <div key={task.id} className="priority-card">
+                  <div className="priority-index">{idx + 1}</div>
+                  <div className="priority-copy"><div className="row-title">{task.title}</div><div className="row-sub">{categoryLabel(task.category, locale)} • {priorityLabel(task.priority, locale)}</div></div>
+                  <span className={cls('priority-pill', task.priority)}>{priorityLabel(task.priority, locale)}</span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="empty-state-card">
+              <div className="row-title">{locale === 'EN-US' ? 'No priorities defined.' : 'Sem prioridades definidas.'}</div>
+              <div className="row-sub">{locale === 'EN-US' ? 'Add tasks and the ranking appears here automatically.' : 'Adicione tarefas e o ranking aparece aqui automaticamente.'}</div>
+            </div>
+          )}
+        </section>
+      </div>
+    </div>
+  );
+}
 
     if (page === 'routine') {
       return (
         <div className="stack large-gap">
           <section className="glass section-card">
             <SectionHeader title={locale === 'EN-US' ? 'Your operational board' : 'Seu painel operacional do dia'} subtitle={locale === 'EN-US' ? 'Filter, prioritize, execute and track.' : 'Filtre, priorize, execute e registre.'} action={<button className="primary-btn" onClick={openNewTask}><Plus size={16} /> {copy.newTask}</button>} />
-            <div className="toolbar-row">
+            <div className="toolbar-row routine-toolbar-wrap">
               <div className="search-box"><Search size={16} /><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder={locale === 'EN-US' ? 'Search task' : 'Buscar tarefa'} /></div>
+              <div className="routine-view-toggle">
+                <button className={cls('ghost-btn', routineView === 'day' && 'active-filter')} onClick={() => setRoutineView('day')}>{locale === 'EN-US' ? 'Today' : 'Hoje'}</button>
+                <button className={cls('ghost-btn', routineView === 'week' && 'active-filter')} onClick={() => setRoutineView('week')}>{locale === 'EN-US' ? 'Today + 6 days' : 'Hoje + 6 dias'}</button>
+              </div>
             </div>
           </section>
-          <div className="task-grid">
-            {filteredTasks.map((task) => (
-              <motion.div key={task.id} layout className="glass task-card-premium">
-                <div className="task-card-body">
-                  <button className="task-check" onClick={() => setTaskStatus(task.id, task.status === 'done' ? 'pending' : 'done')}>
-                    {task.status === 'done' ? <CheckCircle2 size={20} /> : <Circle size={20} />}
-                  </button>
-                  <div className="task-card-copy">
-                    <div className={cls('task-card-title', task.status === 'done' && 'done')}>{task.title}</div>
-                    <div className="task-card-meta">{categoryLabel(task.category, locale)} • {priorityLabel(task.priority, locale)} {task.time ? `• ${task.time}` : ''}</div>
-                    {task.description && <p className="task-desc">{task.description}</p>}
-                    {!!task.subtasks.length && (
-                      <div className="subtask-list">
-                        {task.subtasks.map((s) => (
-                          <div key={s.id} className="subtask-item">
-                            <button type="button" className={cls('subtask-toggle', s.done && 'done')} onClick={() => toggleSubtask(task.id, s.id)}>{s.done ? '✓' : ''}</button>
-                            <span className={cls(s.done && 'done')}>{s.title}</span>
-                          </div>
-                        ))}
+          {routineView === 'day' ? (
+            <div className="task-grid">
+              {filteredTasks.length ? filteredTasks.map((task) => (
+                <motion.div key={`${task.id}-${task.effectiveDate || task.date}`} layout className="glass task-card-premium">
+                  <div className="task-card-body">
+                    <button className="task-check" onClick={() => setTaskStatus(task.id, task.status === 'done' ? 'pending' : 'done', task.effectiveDate || task.date)}>
+                      {task.status === 'done' ? <CheckCircle2 size={20} /> : <Circle size={20} />}
+                    </button>
+                    <div className="task-card-copy">
+                      <div className={cls('task-card-title', task.status === 'done' && 'done')}>{task.title}</div>
+                      <div className="task-card-meta">{categoryLabel(task.category, locale)} • {priorityLabel(task.priority, locale)} {task.time ? `• ${task.time}` : ''}{task.isRecurringOccurrence ? ` • ${locale === 'EN-US' ? 'recurring' : 'recorrente'}` : ''}</div>
+                      {task.description && <p className="task-desc">{task.description}</p>}
+                      {!!task.subtasks.length && (
+                        <div className="subtask-list">
+                          {task.subtasks.map((s) => (
+                            <div key={s.id} className="subtask-item">
+                              <button type="button" className={cls('subtask-toggle', s.done && 'done')} onClick={() => toggleSubtask(task.id, s.id)}>{s.done ? '✓' : ''}</button>
+                              <span className={cls(s.done && 'done')}>{s.title}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      <div className="task-actions-row">
+                        <button className="ghost-btn" onClick={() => setTaskStatus(task.id, 'done', task.effectiveDate || task.date)}>{copy.done}</button>
+                        <button className="ghost-btn" onClick={() => setTaskStatus(task.id, 'pending', task.effectiveDate || task.date)}>{copy.pendingBtn}</button>
+                        <button className="ghost-btn" onClick={() => { setEditingTask(task); setShowTaskModal(true); }}><Pencil size={14} /> {copy.edit}</button>
+                        <button className="ghost-btn" onClick={() => duplicateTask(task)}>{copy.duplicate}</button>
+                        <button className="danger-btn" onClick={() => removeTask(task.id)}><Trash2 size={14} /> {copy.delete}</button>
                       </div>
-                    )}
-                    <div className="task-actions-row">
-                      <button className="ghost-btn" onClick={() => setTaskStatus(task.id, 'done')}>{copy.done}</button>
-                      <button className="ghost-btn" onClick={() => setTaskStatus(task.id, 'pending')}>{copy.pendingBtn}</button>
-                      <button className="ghost-btn" onClick={() => { setEditingTask(task); setShowTaskModal(true); }}><Pencil size={14} /> {copy.edit}</button>
-                      <button className="ghost-btn" onClick={() => duplicateTask(task)}>{copy.duplicate}</button>
-                      <button className="danger-btn" onClick={() => removeTask(task.id)}><Trash2 size={14} /> {copy.delete}</button>
                     </div>
                   </div>
+                </motion.div>
+              )) : (
+                <div className="glass section-card empty-state-card">
+                  <div className="row-title">{locale === 'EN-US' ? 'Nothing scheduled for today.' : 'Nada programado para hoje.'}</div>
+                  <div className="row-sub">{locale === 'EN-US' ? 'Create a task or use the 7-day view to plan ahead.' : 'Crie uma tarefa ou use a visão de 7 dias para planejar à frente.'}</div>
                 </div>
-              </motion.div>
-            ))}
-          </div>
+              )}
+            </div>
+          ) : (
+            <div className="routine-week-list">
+              {routineWeekBlocks.map(({ date, tasks }) => (
+                <section key={date} className="glass section-card routine-day-group">
+                  <div className="routine-day-header">
+                    <div>
+                      <div className="section-title">{formatFullDate(date, locale)}</div>
+                      <div className="section-subtitle">{tasks.length} {locale === 'EN-US' ? 'task(s)' : 'tarefa(s)'}</div>
+                    </div>
+                    <span className="pill">{disciplineForDate(state, date)}%</span>
+                  </div>
+                  {tasks.length ? (
+                    <div className="stack">
+                      {tasks.map((task) => (
+                        <div key={`${task.id}-${date}`} className="task-mini-row routine-week-item">
+                          <button className="task-check" onClick={() => setTaskStatus(task.id, task.status === 'done' ? 'pending' : 'done', date)}>
+                            {task.status === 'done' ? <CheckCircle2 size={18} /> : <Circle size={18} />}
+                          </button>
+                          <div className="task-mini-copy">
+                            <div className={cls('row-title', task.status === 'done' && 'done')}>{task.title}</div>
+                            <div className="row-sub">{categoryLabel(task.category, locale)} • {priorityLabel(task.priority, locale)}{task.time ? ` • ${task.time}` : ''}</div>
+                          </div>
+                          <div className="task-actions-row compact-row">
+                            <button className="ghost-btn compact" onClick={() => { setEditingTask(task); setShowTaskModal(true); }}><Pencil size={14} /></button>
+                            <button className="ghost-btn compact" onClick={() => duplicateTask(task)}>{copy.duplicate}</button>
+                            <button className="danger-btn compact" onClick={() => removeTask(task.id)}><Trash2 size={14} /></button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="empty-state-card compact-empty-state">
+                      <div className="row-title">{locale === 'EN-US' ? 'No tasks on this day.' : 'Sem tarefas neste dia.'}</div>
+                      <div className="row-sub">{locale === 'EN-US' ? 'Recurring routines selected in the modal also appear here automatically.' : 'Rotinas recorrentes escolhidas no modal também aparecem aqui automaticamente.'}</div>
+                    </div>
+                  )}
+                </section>
+              ))}
+            </div>
+          )}
         </div>
       );
     }
 
     if (page === 'habits') {
       return (
-        <HabitsPage
-          habits={state.habits}
-          locale={locale}
-          copy={copy}
-          onReorder={reorderHabits}
-          onIncrement={incrementHabit}
-          onEdit={(habit) => { setEditingHabit(habit); setShowHabitModal(true); }}
-          onRemove={removeHabit}
-          appearance={state.appearance}
-        />
+        <div className="stack large-gap">
+          <div className="habit-grid-page">
+            {state.habits.map((habit) => {
+              const today = habit.logs[todayISO()] || 0;
+              const pct = Math.min(100, Math.round((today / habit.target) * 100));
+              const streakCount = calcHabitStreak(habit);
+              const habitColor = state.appearance.primary;
+              return (
+                <section
+                  key={habit.id}
+                  className={cls('glass', 'section-card', 'habit-card-draggable', draggingHabitId === habit.id && 'dragging', habitDropTargetId === habit.id && draggingHabitId && draggingHabitId !== habit.id && 'drop-target')}
+                  style={{ '--habit-color': habit.color, '--habit-color-soft': alphaColor(habit.color, '18'), '--habit-color-border': alphaColor(habit.color, '3D'), '--habit-color-done': alphaColor(habit.color, '70'), '--habit-color-partial': alphaColor(habit.color, '16'), '--habit-color-done-border': alphaColor(habit.color, 'C8'), '--habit-color-partial-border': alphaColor(habit.color, '33') }}
+                  onDragOver={(event) => handleHabitDragOver(event, habit.id)}
+                  onDrop={() => handleHabitDrop(habit.id)}
+                >
+                  <div className="habit-head-row">
+                    <div className="habit-head-left">
+                      <div className="habit-icon" style={{ background: `${habit.color}22`, color: habit.color }}>{habitIcons[habit.icon] || <Target size={16} />}</div>
+                      <div><div className="section-title">{habit.title}</div><div className="section-subtitle">{categoryLabel(habit.category, locale)} • {copy.goalPerDay(habit.target)}</div></div>
+                    </div>
+                    <div className="habit-head-actions">
+                      <span className="pill habit-streak-pill" style={{ background: alphaColor(habit.color, '18'), color: habit.color, borderColor: alphaColor(habit.color, '3D') }}>{copy.streak} {streakCount}</span>
+                      <button className="ghost-btn compact habit-drag-handle" type="button" draggable onDragStart={() => handleHabitDragStart(habit.id)} onDragEnd={handleHabitDragEnd} title={locale === 'EN-US' ? 'Drag to reorder habits' : 'Arraste para reordenar hábitos'}>↕ {locale === 'EN-US' ? 'Order' : 'Ordenar'}</button>
+                      <button className="ghost-btn compact" onClick={() => { setEditingHabit(habit); setShowHabitModal(true); }}><Pencil size={14} /> {copy.edit}</button>
+                      <button className="danger-btn compact" onClick={() => removeHabit(habit.id)}><Trash2 size={14} /> {copy.delete}</button>
+                    </div>
+                  </div>
+                  <div className="habit-page-body">
+                    <div className="habit-side-card">
+                      <div className="eyebrow">{copy.today}</div>
+                      <div className="big-number">{today}/{habit.target}</div>
+                      <div className="progress-track slim"><div className="progress-fill habit-progress-fill" style={{ width: `${pct}%`, background: `linear-gradient(135deg, ${habit.color}, ${alphaColor(habit.color, 'CC')})` }} /></div>
+                      <div className="habit-stepper spread">
+                        <button className="icon-btn" onClick={() => incrementHabit(habit.id, -1)}><ChevronDown size={16} /></button>
+                        <button className="icon-btn" onClick={() => incrementHabit(habit.id, 1)}><ChevronUp size={16} /></button>
+                      </div>
+                    </div>
+                    <div className="habit-calendar">
+                      {getDateRange(14).map((d) => {
+                        const value = habit.logs[d] || 0;
+                        const done = value >= habit.target;
+                        return <div key={d} className={cls('habit-day', done ? 'done' : value > 0 ? 'partial' : '')} style={done ? { background: alphaColor(habit.color, '70'), borderColor: alphaColor(habit.color, 'C8') } : value > 0 ? { background: alphaColor(habit.color, '16'), borderColor: alphaColor(habit.color, '33') } : undefined} title={`${d}: ${value}/${habit.target}`} />;
+                      })}
+                    </div>
+                  </div>
+                </section>
+              );
+            })}
+          </div>
+        </div>
       );
     }
 
@@ -1517,100 +1752,100 @@ export default function DisciplinaTotalApp() {
       );
     }
 
-    if (page === 'stats') {
-      return (
-        <div className="stack large-gap">
-          <div className="stats-grid-top">
-            <Metric icon={<BarChart3 size={16} />} label={locale === 'EN-US' ? 'Week average' : 'Média semanal'} value={`${weekAverage}%`} />
-            <Metric icon={<CalendarDays size={16} />} label={locale === 'EN-US' ? 'Weekly execution' : 'Execução semanal'} value={`${weekCompletionRate}%`} />
-            <Metric icon={<Trophy size={16} />} label={locale === 'EN-US' ? 'Overall average' : 'Média geral'} value={`${generalAverage}%`} />
-            <Metric icon={<Flame size={16} />} label={locale === 'EN-US' ? 'Record / streak' : 'Recorde / sequência'} value={`${record}% • ${streak}d`} />
+if (page === 'stats') {
+  return (
+    <div className="stack large-gap">
+      <div className="stats-grid-top">
+        <Metric icon={<BarChart3 size={16} />} label={locale === 'EN-US' ? 'Week average' : 'Média semanal'} value={`${weekAverage}%`} />
+        <Metric icon={<CalendarDays size={16} />} label={locale === 'EN-US' ? 'Weekly execution' : 'Execução semanal'} value={`${weekCompletionRate}%`} />
+        <Metric icon={<Trophy size={16} />} label={locale === 'EN-US' ? 'Overall average' : 'Média geral'} value={`${generalAverage}%`} />
+        <Metric icon={<Flame size={16} />} label={locale === 'EN-US' ? 'Record / streak' : 'Recorde / sequência'} value={`${record}% • ${streak}d`} />
+      </div>
+
+      <div className="split-2">
+        <section className="glass section-card">
+          <SectionHeader title={locale === 'EN-US' ? 'Daily discipline (7 days)' : 'Disciplina diária (7 dias)'} subtitle={locale === 'EN-US' ? 'Real rises and drops in your week.' : 'Subidas e quedas reais da sua semana.'} />
+          <div className="chart-box">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={weekSeries}>
+                <CartesianGrid stroke={chartGrid} vertical={false} />
+                <XAxis dataKey="label" stroke={chartAxis} tickLine={false} axisLine={false} />
+                <YAxis stroke={chartAxis} tickLine={false} axisLine={false} />
+                <Tooltip content={<ChartTooltip />} />
+                <Line type="monotone" dataKey="disciplina" name="Disciplina" stroke="var(--primary)" strokeWidth={3} dot={{ r: 4 }} />
+              </LineChart>
+            </ResponsiveContainer>
           </div>
-
-          <div className="split-2">
-            <section className="glass section-card">
-              <SectionHeader title={locale === 'EN-US' ? 'Daily discipline (7 days)' : 'Disciplina diária (7 dias)'} subtitle={locale === 'EN-US' ? 'Real rises and drops in your week.' : 'Subidas e quedas reais da sua semana.'} />
-              <div className="chart-box">
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={weekSeries}>
-                    <CartesianGrid stroke={chartGrid} vertical={false} />
-                    <XAxis dataKey="label" stroke={chartAxis} tickLine={false} axisLine={false} />
-                    <YAxis stroke={chartAxis} tickLine={false} axisLine={false} />
-                    <Tooltip content={<ChartTooltip />} />
-                    <Line type="monotone" dataKey="disciplina" name="Disciplina" stroke="var(--primary)" strokeWidth={3} dot={{ r: 4 }} />
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>
-              <div className="chart-footer">
-                {bestWeekDay ? <span className="pill success">{locale === 'EN-US' ? 'Best day' : 'Melhor dia'}: {formatShort(bestWeekDay.raw, locale)} • {bestWeekDay.disciplina}%</span> : null}
-                {worstWeekDay ? <span className="pill danger">{locale === 'EN-US' ? 'Weakest' : 'Mais fraco'}: {formatShort(worstWeekDay.raw, locale)} • {worstWeekDay.disciplina}%</span> : null}
-              </div>
-            </section>
-
-            <section className="glass section-card">
-              <SectionHeader title={locale === 'EN-US' ? 'Task flow (7 days)' : 'Fluxo de tarefas (7 dias)'} subtitle={locale === 'EN-US' ? 'How many came in and how many turned into delivery.' : 'Quantas entraram e quantas viraram entrega.'} />
-              <div className="chart-box">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={weeklyTaskFlow}>
-                    <CartesianGrid stroke={chartGrid} vertical={false} />
-                    <XAxis dataKey="label" stroke={chartAxis} tickLine={false} axisLine={false} />
-                    <YAxis stroke={chartAxis} tickLine={false} axisLine={false} />
-                    <Tooltip content={<ChartTooltip />} />
-                    <Bar dataKey="abertas" name={locale === 'EN-US' ? 'Opened' : 'No dia'} fill={mutedBarColor} radius={[12, 12, 0, 0]} />
-                    <Bar dataKey="concluidas" name={locale === 'EN-US' ? 'Completed' : 'Concluídas'} fill="var(--primary)" radius={[12, 12, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-              <div className="chart-footer">
-                <span className="pill info">{locale === 'EN-US' ? 'Execution' : 'Execução'}: {weekCompletionRate}%</span>
-                <span className="pill">{weekDoneTasks}/{weekTotalTasks || 0} {locale === 'EN-US' ? 'completed' : 'concluídas'}</span>
-              </div>
-            </section>
+          <div className="chart-footer">
+            {bestWeekDay ? <span className="pill success">{locale === 'EN-US' ? 'Best day' : 'Melhor dia'}: {formatShort(bestWeekDay.raw, locale)} • {bestWeekDay.disciplina}%</span> : null}
+            {worstWeekDay ? <span className="pill danger">{locale === 'EN-US' ? 'Weakest' : 'Mais fraco'}: {formatShort(worstWeekDay.raw, locale)} • {worstWeekDay.disciplina}%</span> : null}
           </div>
+        </section>
 
-          <div className="split-2">
-            <section className="glass section-card">
-              <SectionHeader title={locale === 'EN-US' ? 'Delivery by priority (7 days)' : 'Entrega por prioridade (7 dias)'} subtitle={locale === 'EN-US' ? 'Shows where you are turning effort into results.' : 'Mostra onde você está convertendo esforço em resultado.'} />
-              <div className="chart-box">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={priorityCompletionData}>
-                    <CartesianGrid stroke={chartGrid} vertical={false} />
-                    <XAxis dataKey="name" stroke={chartAxis} tickLine={false} axisLine={false} />
-                    <YAxis stroke={chartAxis} tickLine={false} axisLine={false} domain={[0, 100]} />
-                    <Tooltip content={<ChartTooltip />} />
-                    <Bar dataKey="taxa" name={locale === 'EN-US' ? 'Delivery rate %' : 'Taxa de entrega %'} fill="var(--accent)" radius={[12, 12, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-              <div className="chart-footer">
-                {priorityCompletionData.length ? priorityCompletionData.map((item) => (
-                  <span key={item.name} className="pill">{item.name}: {item.entregues}/{item.total}</span>
-                )) : <span className="pill">{locale === 'EN-US' ? 'Not enough data this week' : 'Sem dados suficientes nesta semana'}</span>}
-              </div>
-            </section>
-
-            <section className="glass section-card">
-              <SectionHeader title={locale === 'EN-US' ? 'Habit consistency (14 days)' : 'Consistência dos hábitos (14 dias)'} subtitle={locale === 'EN-US' ? 'Which habits truly sustain your result.' : 'Quais hábitos realmente sustentam seu resultado.'} />
-              <div className="chart-box">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={habitConsistencyData}>
-                    <CartesianGrid stroke={chartGrid} vertical={false} />
-                    <XAxis dataKey="name" stroke={chartAxis} tickLine={false} axisLine={false} />
-                    <YAxis stroke={chartAxis} tickLine={false} axisLine={false} domain={[0, 100]} />
-                    <Tooltip content={<ChartTooltip />} />
-                    <Bar dataKey="consistencia" name={locale === 'EN-US' ? 'Consistency %' : 'Consistência %'} fill="var(--primary)" radius={[12, 12, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-              <div className="chart-footer">
-                <span className="pill success">{locale === 'EN-US' ? 'Completed habits today' : 'Hábitos completos hoje'}: {todayCompletedHabits}/{state.habits.length}</span>
-                {habitConsistencyData[0] ? <span className="pill info">{locale === 'EN-US' ? 'Most consistent' : 'Mais consistente'}: {habitConsistencyData[0].name}</span> : null}
-              </div>
-            </section>
+        <section className="glass section-card">
+          <SectionHeader title={locale === 'EN-US' ? 'Task flow (7 days)' : 'Fluxo de tarefas (7 dias)'} subtitle={locale === 'EN-US' ? 'How many came in and how many turned into delivery.' : 'Quantas entraram e quantas viraram entrega.'} />
+          <div className="chart-box">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={weeklyTaskFlow}>
+                <CartesianGrid stroke={chartGrid} vertical={false} />
+                <XAxis dataKey="label" stroke={chartAxis} tickLine={false} axisLine={false} />
+                <YAxis stroke={chartAxis} tickLine={false} axisLine={false} />
+                <Tooltip content={<ChartTooltip />} />
+                <Bar dataKey="abertas" name={locale === 'EN-US' ? 'Opened' : 'No dia'} fill={mutedBarColor} radius={[12, 12, 0, 0]} />
+                <Bar dataKey="concluidas" name={locale === 'EN-US' ? 'Completed' : 'Concluídas'} fill="var(--primary)" radius={[12, 12, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
           </div>
-        </div>
-      );
-    }
+          <div className="chart-footer">
+            <span className="pill info">{locale === 'EN-US' ? 'Execution' : 'Execução'}: {weekCompletionRate}%</span>
+            <span className="pill">{weekDoneTasks}/{weekTotalTasks || 0} {locale === 'EN-US' ? 'completed' : 'concluídas'}</span>
+          </div>
+        </section>
+      </div>
+
+      <div className="split-2">
+        <section className="glass section-card">
+          <SectionHeader title={locale === 'EN-US' ? 'Delivery by priority (7 days)' : 'Entrega por prioridade (7 dias)'} subtitle={locale === 'EN-US' ? 'Shows where you are turning effort into results.' : 'Mostra onde você está convertendo esforço em resultado.'} />
+          <div className="chart-box">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={priorityCompletionData}>
+                <CartesianGrid stroke={chartGrid} vertical={false} />
+                <XAxis dataKey="name" stroke={chartAxis} tickLine={false} axisLine={false} />
+                <YAxis stroke={chartAxis} tickLine={false} axisLine={false} domain={[0, 100]} />
+                <Tooltip content={<ChartTooltip />} />
+                <Bar dataKey="taxa" name={locale === 'EN-US' ? 'Delivery rate %' : 'Taxa de entrega %'} fill="var(--accent)" radius={[12, 12, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+          <div className="chart-footer">
+            {priorityCompletionData.length ? priorityCompletionData.map((item) => (
+              <span key={item.name} className="pill">{item.name}: {item.entregues}/{item.total}</span>
+            )) : <span className="pill">{locale === 'EN-US' ? 'Not enough data this week' : 'Sem dados suficientes nesta semana'}</span>}
+          </div>
+        </section>
+
+        <section className="glass section-card">
+          <SectionHeader title={locale === 'EN-US' ? 'Habit consistency (14 days)' : 'Consistência dos hábitos (14 dias)'} subtitle={locale === 'EN-US' ? 'Which habits truly sustain your result.' : 'Quais hábitos realmente sustentam seu resultado.'} />
+          <div className="chart-box">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={habitConsistencyData}>
+                <CartesianGrid stroke={chartGrid} vertical={false} />
+                <XAxis dataKey="name" stroke={chartAxis} tickLine={false} axisLine={false} />
+                <YAxis stroke={chartAxis} tickLine={false} axisLine={false} domain={[0, 100]} />
+                <Tooltip content={<ChartTooltip />} />
+                <Bar dataKey="consistencia" name={locale === 'EN-US' ? 'Consistency %' : 'Consistência %'} fill="var(--primary)" radius={[12, 12, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+          <div className="chart-footer">
+            <span className="pill success">{locale === 'EN-US' ? 'Completed habits today' : 'Hábitos completos hoje'}: {todayCompletedHabits}/{state.habits.length}</span>
+            {habitConsistencyData[0] ? <span className="pill info">{locale === 'EN-US' ? 'Most consistent' : 'Mais consistente'}: {habitConsistencyData[0].name}</span> : null}
+          </div>
+        </section>
+      </div>
+    </div>
+  );
+}
 
     if (page === 'pomodoro') {
       return (
@@ -1752,14 +1987,14 @@ export default function DisciplinaTotalApp() {
               </button>
             ))}
           </nav>
-          {hasWeeklyGoals ? (
-            <div className="sidebar-bottom-stack">
-              <div className="week-focus glass-inner">
-                <div className="section-title with-icon"><Sparkles size={16} /> {copy.weeklyFocus}</div>
-                <p>{weeklyGoals.join(' · ')}</p>
-              </div>
-            </div>
-          ) : null}
+{hasWeeklyGoals ? (
+  <div className="sidebar-bottom-stack">
+    <div className="week-focus glass-inner">
+      <div className="section-title with-icon"><Sparkles size={16} /> {copy.weeklyFocus}</div>
+      <p>{weeklyGoals.join(' · ')}</p>
+    </div>
+  </div>
+) : null}
         </aside>
 
         <main className="main-zone">
@@ -1812,125 +2047,6 @@ export default function DisciplinaTotalApp() {
   );
 }
 
-// ── HABITS PAGE com Drag and Drop ────────────────────────────────────
-function HabitsPage({ habits, locale, copy, onReorder, onIncrement, onEdit, onRemove, appearance }) {
-  const [dragOverIdx, setDragOverIdx] = useState(null);
-  const dragIdx = useRef(null);
-
-  function handleDragStart(e, index) {
-    dragIdx.current = index;
-    e.dataTransfer.effectAllowed = 'move';
-    // Necessário para Firefox
-    e.dataTransfer.setData('text/plain', String(index));
-  }
-
-  function handleDragOver(e, index) {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = 'move';
-    setDragOverIdx(index);
-  }
-
-  function handleDrop(e, index) {
-    e.preventDefault();
-    const from = dragIdx.current;
-    const to = index;
-    if (from !== null && from !== to) {
-      const reordered = [...habits];
-      const [removed] = reordered.splice(from, 1);
-      reordered.splice(to, 0, removed);
-      onReorder(reordered);
-    }
-    dragIdx.current = null;
-    setDragOverIdx(null);
-  }
-
-  function handleDragEnd() {
-    dragIdx.current = null;
-    setDragOverIdx(null);
-  }
-
-  return (
-    <div className="stack large-gap">
-      {habits.length > 1 && (
-        <div className="habit-reorder-hint">
-          <GripVertical size={14} />
-          <span>{locale === 'EN-US' ? 'Drag the handle to reorder habits' : 'Arraste o handle para reordenar os hábitos'}</span>
-        </div>
-      )}
-      <div className="habit-grid-page">
-        {habits.map((habit, index) => {
-          const today = habit.logs[todayISO()] || 0;
-          const pct = Math.min(100, Math.round((today / habit.target) * 100));
-          const streakCount = calcHabitStreak(habit);
-          const isDragOver = dragOverIdx === index;
-
-          return (
-            <section
-              key={habit.id}
-              className={cls('glass section-card habit-draggable', isDragOver && 'habit-drag-over')}
-              style={{
-                '--habit-color': habit.color,
-                '--habit-color-soft': alphaColor(habit.color, '18'),
-                '--habit-color-border': alphaColor(habit.color, '3D'),
-                '--habit-color-done': alphaColor(habit.color, '70'),
-                '--habit-color-partial': alphaColor(habit.color, '16'),
-                '--habit-color-done-border': alphaColor(habit.color, 'C8'),
-                '--habit-color-partial-border': alphaColor(habit.color, '33'),
-              }}
-              draggable={false}
-              onDragOver={(e) => handleDragOver(e, index)}
-              onDrop={(e) => handleDrop(e, index)}
-              onDragEnd={handleDragEnd}
-            >
-              <div className="habit-head-row">
-                <div className="habit-head-left">
-                  {/* ── HANDLE DE DRAG ── */}
-                  <div
-                    className="habit-drag-handle"
-                    draggable
-                    onDragStart={(e) => handleDragStart(e, index)}
-                    title={locale === 'EN-US' ? 'Drag to reorder' : 'Arraste para reordenar'}
-                  >
-                    <GripVertical size={18} />
-                  </div>
-                  <div className="habit-icon" style={{ background: `${habit.color}22`, color: habit.color }}>{habitIcons[habit.icon] || <Target size={16} />}</div>
-                  <div>
-                    <div className="section-title">{habit.title}</div>
-                    <div className="section-subtitle">{categoryLabel(habit.category, locale)} • {copy.goalPerDay(habit.target)}</div>
-                  </div>
-                </div>
-                <div className="habit-head-actions">
-                  <span className="pill habit-streak-pill" style={{ background: alphaColor(habit.color, '18'), color: habit.color, borderColor: alphaColor(habit.color, '3D') }}>{copy.streak} {streakCount}</span>
-                  <button className="ghost-btn compact" onClick={() => onEdit(habit)}><Pencil size={14} /> {copy.edit}</button>
-                  <button className="danger-btn compact" onClick={() => onRemove(habit.id)}><Trash2 size={14} /> {copy.delete}</button>
-                </div>
-              </div>
-              <div className="habit-page-body">
-                <div className="habit-side-card">
-                  <div className="eyebrow">{copy.today}</div>
-                  <div className="big-number">{today}/{habit.target}</div>
-                  <div className="progress-track slim"><div className="progress-fill habit-progress-fill" style={{ width: `${pct}%`, background: `linear-gradient(135deg, ${habit.color}, ${alphaColor(habit.color, 'CC')})` }} /></div>
-                  <div className="habit-stepper spread">
-                    <button className="icon-btn" onClick={() => onIncrement(habit.id, -1)}><ChevronDown size={16} /></button>
-                    <button className="icon-btn" onClick={() => onIncrement(habit.id, 1)}><ChevronUp size={16} /></button>
-                  </div>
-                </div>
-                <div className="habit-calendar">
-                  {getDateRange(14).map((d) => {
-                    const value = habit.logs[d] || 0;
-                    const done = value >= habit.target;
-                    return <div key={d} className={cls('habit-day', done ? 'done' : value > 0 ? 'partial' : '')} style={done ? { background: alphaColor(habit.color, '70'), borderColor: alphaColor(habit.color, 'C8') } : value > 0 ? { background: alphaColor(habit.color, '16'), borderColor: alphaColor(habit.color, '33') } : undefined} title={`${d}: ${value}/${habit.target}`} />;
-                  })}
-                </div>
-              </div>
-            </section>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
 // ── HELPERS ──────────────────────────────────────────────────────────
 function titleByPage(page, locale = 'PT-BR') {
   return getCopy(locale).nav[page];
@@ -1978,7 +2094,7 @@ function MiniStat({ label, value }) {
 function TaskMiniRow({ task, onSetTaskStatus, locale = 'PT-BR' }) {
   return (
     <div className="task-mini-row">
-      <button className="task-check" onClick={() => onSetTaskStatus(task.id, task.status === 'done' ? 'pending' : 'done')}>
+      <button className="task-check" onClick={() => onSetTaskStatus(task.id, task.status === 'done' ? 'pending' : 'done', task.effectiveDate || task.date)}>
         {task.status === 'done' ? <CheckCircle2 size={18} /> : <Circle size={18} />}
       </button>
       <div className="task-mini-copy">
@@ -2020,12 +2136,73 @@ function NumberField({ label, value, onCommit, min = 0, placeholder = '' }) {
     </Field>
   );
 }
+function LoadingScreen({ locale = 'PT-BR', backgroundValue, overlay = 0.34 }) {
+  return (
+    <div className="loading-screen" style={{ '--bg-image': backgroundValue, '--overlay': overlay }}>
+      <div className="bg-base" />
+      <div className="bg-overlay" />
+      <div className="loading-screen-card glass">
+        <img src={`${import.meta.env.BASE_URL}logo-sidebar.png`} alt="Disciplina Total" className="loading-screen-logo" />
+        <div className="loading-screen-title">Disciplina Total</div>
+        <div className="loading-screen-subtitle">{locale === 'EN-US' ? 'Loading your saved state safely...' : 'Carregando seu estado salvo com segurança...'}</div>
+        <div className="loading-screen-progress"><div className="loading-screen-progress-bar" /></div>
+      </div>
+    </div>
+  );
+}
+
+function ModalShell({ open, onClose, children, cardClassName = '', allowBackdropClose = false }) {
+  useEffect(() => {
+    if (!open) return undefined;
+
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape') onClose?.();
+    };
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    document.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [open, onClose]);
+
+  if (!open) return null;
+
+  return (
+    <div className="modal-backdrop" onMouseDown={(event) => { if (allowBackdropClose && event.target === event.currentTarget) onClose?.(); }} role="presentation">
+      <div className={cls('modal-card', 'glass', cardClassName)} role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()} onClick={(event) => event.stopPropagation()}>
+        {children}
+      </div>
+    </div>
+  );
+}
+
 function TaskModal({ open, onClose, task, onSave, categories, locale = 'PT-BR' }) {
   const copy = getCopy(locale);
   const [draft, setDraft] = useState(null);
-  useEffect(() => setDraft(task ? { ...task, subtasks: task.subtasks?.length ? task.subtasks : [{ id: uid(), title: '', done: false }] } : null), [task]);
+
+  useEffect(() => {
+    if (!task) {
+      setDraft(null);
+      return;
+    }
+
+    const normalizedTask = normalizeTaskRecord(task);
+    setDraft({
+      ...normalizedTask,
+      subtasks: normalizedTask.subtasks?.length ? normalizedTask.subtasks : [{ id: uid(), title: '', done: false }],
+    });
+  }, [task]);
+
   if (!open || !draft) return null;
-  function updateSubtask(index, value) { setDraft((prev) => ({ ...prev, subtasks: prev.subtasks.map((s, i) => (i === index ? { ...s, title: value } : s)) })); }
+
+  function updateSubtask(index, value) {
+    setDraft((prev) => ({ ...prev, subtasks: prev.subtasks.map((s, i) => (i === index ? { ...s, title: value } : s)) }));
+  }
+
   function addSubtask(afterIndex = null) {
     setDraft((prev) => {
       const nextItem = { id: uid(), title: '', done: false };
@@ -2035,72 +2212,77 @@ function TaskModal({ open, onClose, task, onSave, categories, locale = 'PT-BR' }
       return { ...prev, subtasks };
     });
   }
+
   function removeSubtask(index) {
-    setDraft((prev) => { const subtasks = (prev.subtasks || []).filter((_, i) => i !== index); return { ...prev, subtasks: subtasks.length ? subtasks : [{ id: uid(), title: '', done: false }] }; });
+    setDraft((prev) => {
+      const subtasks = (prev.subtasks || []).filter((_, i) => i !== index);
+      return { ...prev, subtasks: subtasks.length ? subtasks : [{ id: uid(), title: '', done: false }] };
+    });
   }
+
+  function toggleRepeatDay(day) {
+    setDraft((prev) => {
+      const current = normalizeRepeatDays(prev.repeatDays);
+      const next = current.includes(day) ? current.filter((value) => value !== day) : [...current, day].sort((a, b) => a - b);
+      return { ...prev, repeatDays: next };
+    });
+  }
+
   return (
-    <div
-      className="modal-backdrop"
-      onMouseDown={(e) => {
-        e.currentTarget.dataset.backdropPressed = String(e.target === e.currentTarget);
-      }}
-      onMouseUp={(e) => {
-        const pressedOnBackdrop = e.currentTarget.dataset.backdropPressed === 'true';
-        if (pressedOnBackdrop && e.target === e.currentTarget) {
-          onClose();
-        }
-        e.currentTarget.dataset.backdropPressed = 'false';
-      }}
-    >
-      <div
-        className="modal-card glass"
-        onMouseDown={(e) => {
-          const backdrop = e.currentTarget.parentElement;
-          if (backdrop) backdrop.dataset.backdropPressed = 'false';
-        }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="section-head-row">
-          <div><div className="section-title">{task?.title ? `${copy.edit} ${copy.taskTitle.toLowerCase()}` : copy.newTask}</div><div className="section-subtitle">{copy.fillMainFields}</div></div>
-          <button className="ghost-btn" onClick={onClose}>{copy.close}</button>
-        </div>
-        <div className="form-grid">
-          <Field label={copy.taskTitle}><input value={draft.title || ''} onChange={(e) => setDraft({ ...draft, title: e.target.value })} /></Field>
-          <Field label={copy.category}>
-            <select value={draft.category || 'pessoal'} onChange={(e) => setDraft({ ...draft, category: e.target.value })}>
-              {categories.map((c) => <option key={c} value={c}>{categoryLabel(c, locale)}</option>)}
-            </select>
-          </Field>
-          <Field label={copy.priority}>
-            <select value={draft.priority || 'média'} onChange={(e) => setDraft({ ...draft, priority: e.target.value, color: priorityColor(e.target.value) })}>
-              <option value="baixa">{copy.low}</option><option value="média">{copy.medium}</option><option value="alta">{copy.high}</option><option value="crítica">{copy.critical}</option>
-            </select>
-          </Field>
-          <Field label={copy.time}><input value={draft.time || ''} onChange={(e) => setDraft({ ...draft, time: e.target.value })} placeholder="08:00" /></Field>
-          <div className="field helper-card"><span>{copy.discipline}</span><small>{copy.disciplineHelp}</small></div>
-          <Field label={copy.description}><textarea value={draft.description || ''} onChange={(e) => setDraft({ ...draft, description: e.target.value })} /></Field>
-          <div className="field subtasks-editor">
-            <span>{copy.subtasks}</span>
-            <div className="subtask-editor-list">
-              {(draft.subtasks || []).map((subtask, idx) => (
-                <div key={subtask.id} className="subtask-editor-row">
-                  <input value={subtask.title || ''} onChange={(e) => updateSubtask(idx, e.target.value)} placeholder={locale === 'EN-US' ? `Subtask ${idx + 1}` : `Subtarefa ${idx + 1}`} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addSubtask(idx); } }} />
-                  <button type="button" className="ghost-btn compact round" onClick={() => addSubtask(idx)}>+</button>
-                  <button type="button" className="danger-btn compact round" onClick={() => removeSubtask(idx)}>−</button>
-                </div>
-              ))}
-            </div>
-            <button type="button" className="ghost-btn" onClick={() => addSubtask()}><Plus size={14} /> {locale === 'EN-US' ? 'Add subtask' : 'Adicionar subtarefa'}</button>
+    <ModalShell open={open} onClose={onClose} allowBackdropClose={false}>
+      <div className="section-head-row">
+        <div><div className="section-title">{task?.title ? `${copy.edit} ${copy.taskTitle.toLowerCase()}` : copy.newTask}</div><div className="section-subtitle">{copy.fillMainFields}</div></div>
+        <button className="ghost-btn" onClick={onClose}>{copy.close}</button>
+      </div>
+      <div className="form-grid">
+        <Field label={copy.taskTitle}><input value={draft.title || ''} onChange={(e) => setDraft({ ...draft, title: e.target.value })} /></Field>
+        <Field label={locale === 'EN-US' ? 'Date' : 'Data'}><input type="date" value={draft.date || todayISO()} onChange={(e) => setDraft({ ...draft, date: e.target.value })} /></Field>
+        <Field label={copy.category}>
+          <select value={draft.category || 'pessoal'} onChange={(e) => setDraft({ ...draft, category: e.target.value })}>
+            {categories.map((c) => <option key={c} value={c}>{categoryLabel(c, locale)}</option>)}
+          </select>
+        </Field>
+        <Field label={copy.priority}>
+          <select value={draft.priority || 'média'} onChange={(e) => setDraft({ ...draft, priority: e.target.value, color: priorityColor(e.target.value) })}>
+            <option value="baixa">{copy.low}</option><option value="média">{copy.medium}</option><option value="alta">{copy.high}</option><option value="crítica">{copy.critical}</option>
+          </select>
+        </Field>
+        <Field label={copy.time}><input value={draft.time || ''} onChange={(e) => setDraft({ ...draft, time: e.target.value })} placeholder="08:00" /></Field>
+        <div className="field helper-card"><span>{copy.discipline}</span><small>{copy.disciplineHelp}</small></div>
+        <div className="field weekday-field">
+          <span>{locale === 'EN-US' ? 'Weekdays / recurring routine' : 'Dias da semana / rotina recorrente'}</span>
+          <div className="weekday-selector">
+            {WEEKDAY_ORDER.map((day) => (
+              <button key={day} type="button" className={cls('weekday-chip', normalizeRepeatDays(draft.repeatDays).includes(day) && 'active')} onClick={() => toggleRepeatDay(day)}>
+                {weekdayLabel(day, locale)}
+              </button>
+            ))}
           </div>
+          <small>{locale === 'EN-US' ? 'Leave all days unselected for a one-time task. Select one or more days to make it appear automatically from the chosen start date onward.' : 'Deixe todos os dias desmarcados para uma tarefa avulsa. Selecione um ou mais dias para ela aparecer automaticamente a partir da data escolhida.'}</small>
         </div>
-        <div className="task-actions-row end">
-          <button className="ghost-btn" onClick={onClose}>{locale === 'EN-US' ? 'Cancel' : 'Cancelar'}</button>
-          <button className="primary-btn" onClick={() => draft.title?.trim() && onSave({ ...draft, title: draft.title.trim() })}>{copy.save}</button>
+        <Field label={copy.description}><textarea value={draft.description || ''} onChange={(e) => setDraft({ ...draft, description: e.target.value })} /></Field>
+        <div className="field subtasks-editor">
+          <span>{copy.subtasks}</span>
+          <div className="subtask-editor-list">
+            {(draft.subtasks || []).map((subtask, idx) => (
+              <div key={subtask.id} className="subtask-editor-row">
+                <input value={subtask.title || ''} onChange={(e) => updateSubtask(idx, e.target.value)} placeholder={locale === 'EN-US' ? `Subtask ${idx + 1}` : `Subtarefa ${idx + 1}`} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addSubtask(idx); } }} />
+                <button type="button" className="ghost-btn compact round" onClick={() => addSubtask(idx)}>+</button>
+                <button type="button" className="danger-btn compact round" onClick={() => removeSubtask(idx)}>−</button>
+              </div>
+            ))}
+          </div>
+          <button type="button" className="ghost-btn" onClick={() => addSubtask()}><Plus size={14} /> {locale === 'EN-US' ? 'Add subtask' : 'Adicionar subtarefa'}</button>
         </div>
       </div>
-    </div>
+      <div className="task-actions-row end">
+        <button className="ghost-btn" onClick={onClose}>{locale === 'EN-US' ? 'Cancel' : 'Cancelar'}</button>
+        <button className="primary-btn" onClick={() => draft.title?.trim() && onSave({ ...draft, title: draft.title.trim() })}>{copy.save}</button>
+      </div>
+    </ModalShell>
   );
 }
+
 function PomodoroMainCard({ locale = 'PT-BR', timer, running, mode, cycles, nextBreakLabel, infoOpen, setInfoOpen, selectedSoundKey, savedSounds, linkNameDraft, setLinkNameDraft, urlDraft, setUrlDraft, onSoundKeyChange, onAddSavedUrl, onRemoveSavedUrl, config, onConfigChange, onToggleRun, onSetFocus, onSetShortBreak, onSetLongBreak, onReset }) {
   const [manageOpen, setManageOpen] = useState(false);
   function openSound() {
@@ -2190,98 +2372,56 @@ function HabitModal({ open, onClose, habit, onSave, categories, locale = 'PT-BR'
   useEffect(() => setDraft(habit), [habit]);
   if (!open || !draft) return null;
   return (
-    <div
-      className="modal-backdrop"
-      onMouseDown={(e) => {
-        e.currentTarget.dataset.backdropPressed = String(e.target === e.currentTarget);
-      }}
-      onMouseUp={(e) => {
-        const pressedOnBackdrop = e.currentTarget.dataset.backdropPressed === 'true';
-        if (pressedOnBackdrop && e.target === e.currentTarget) {
-          onClose();
-        }
-        e.currentTarget.dataset.backdropPressed = 'false';
-      }}
-    >
-      <div
-        className="modal-card glass"
-        onMouseDown={(e) => {
-          const backdrop = e.currentTarget.parentElement;
-          if (backdrop) backdrop.dataset.backdropPressed = 'false';
-        }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="section-head-row">
-          <div><div className="section-title">{habit?.title ? `${copy.edit} ${locale === 'EN-US' ? 'habit' : 'hábito'}` : copy.newHabit}</div><div className="section-subtitle">{locale === 'EN-US' ? 'Set goal, category and icon.' : 'Defina meta, categoria e ícone.'}</div></div>
-          <button className="ghost-btn" onClick={onClose}>{copy.close}</button>
-        </div>
-        <div className="form-grid">
-          <Field label={copy.taskTitle}><input value={draft.title || ''} onChange={(e) => setDraft({ ...draft, title: e.target.value })} /></Field>
-          <Field label={copy.category}>
-            <select value={draft.category || 'saúde'} onChange={(e) => setDraft({ ...draft, category: e.target.value })}>
-              {categories.map((c) => <option key={c} value={c}>{categoryLabel(c, locale)}</option>)}
-            </select>
-          </Field>
-          <Field label={locale === 'EN-US' ? 'Icon' : 'Ícone'}>
-            <select value={draft.icon || 'agua'} onChange={(e) => setDraft({ ...draft, icon: e.target.value })}>
-              <option value="agua">{locale === 'EN-US' ? 'Water' : 'Água'}</option><option value="sono">{locale === 'EN-US' ? 'Sleep' : 'Sono'}</option><option value="treino">{locale === 'EN-US' ? 'Workout' : 'Treino'}</option>
-              <option value="leitura">{locale === 'EN-US' ? 'Reading' : 'Leitura'}</option><option value="trabalho">{locale === 'EN-US' ? 'Work' : 'Trabalho'}</option>
-              <option value="espiritualidade">{locale === 'EN-US' ? 'Spirituality' : 'Espiritualidade'}</option><option value="saude">{locale === 'EN-US' ? 'Health' : 'Saúde'}</option><option value="foco">{locale === 'EN-US' ? 'Focus' : 'Foco'}</option>
-            </select>
-          </Field>
-          <NumberField label={copy.goalPerDay('').trim()} min={1} value={draft.target || 1} onCommit={(value) => setDraft({ ...draft, target: value })} />
-        </div>
-        <div className="task-actions-row end">
-          <button className="ghost-btn" onClick={onClose}>{locale === 'EN-US' ? 'Cancel' : 'Cancelar'}</button>
-          <button className="primary-btn" onClick={() => draft.title?.trim() && onSave({ ...draft, title: draft.title.trim(), logs: draft.logs || { [todayISO()]: 0 } })}>{copy.save}</button>
-        </div>
+    <ModalShell open={open} onClose={onClose} allowBackdropClose={false}>
+      <div className="section-head-row">
+        <div><div className="section-title">{habit?.title ? `${copy.edit} ${locale === 'EN-US' ? 'habit' : 'hábito'}` : copy.newHabit}</div><div className="section-subtitle">{locale === 'EN-US' ? 'Set goal, category and icon.' : 'Defina meta, categoria e ícone.'}</div></div>
+        <button className="ghost-btn" onClick={onClose}>{copy.close}</button>
       </div>
-    </div>
+      <div className="form-grid">
+        <Field label={copy.taskTitle}><input value={draft.title || ''} onChange={(e) => setDraft({ ...draft, title: e.target.value })} /></Field>
+        <Field label={copy.category}>
+          <select value={draft.category || 'saúde'} onChange={(e) => setDraft({ ...draft, category: e.target.value })}>
+            {categories.map((c) => <option key={c} value={c}>{categoryLabel(c, locale)}</option>)}
+          </select>
+        </Field>
+        <Field label={locale === 'EN-US' ? 'Icon' : 'Ícone'}>
+          <select value={draft.icon || 'agua'} onChange={(e) => setDraft({ ...draft, icon: e.target.value })}>
+            <option value="agua">{locale === 'EN-US' ? 'Water' : 'Água'}</option><option value="sono">{locale === 'EN-US' ? 'Sleep' : 'Sono'}</option><option value="treino">{locale === 'EN-US' ? 'Workout' : 'Treino'}</option>
+            <option value="leitura">{locale === 'EN-US' ? 'Reading' : 'Leitura'}</option><option value="trabalho">{locale === 'EN-US' ? 'Work' : 'Trabalho'}</option><option value="espiritualidade">{locale === 'EN-US' ? 'Spirituality' : 'Espiritualidade'}</option><option value="saude">{locale === 'EN-US' ? 'Health' : 'Saúde'}</option><option value="foco">{locale === 'EN-US' ? 'Focus' : 'Foco'}</option>
+          </select>
+        </Field>
+        <NumberField label={copy.goalPerDay('').trim()} min={1} value={draft.target || 1} onCommit={(value) => setDraft({ ...draft, target: value })} />
+      </div>
+      <div className="task-actions-row end">
+        <button className="ghost-btn" onClick={onClose}>{locale === 'EN-US' ? 'Cancel' : 'Cancelar'}</button>
+        <button className="primary-btn" onClick={() => draft.title?.trim() && onSave({ ...draft, title: draft.title.trim(), logs: draft.logs || { [todayISO()]: 0 } })}>{copy.save}</button>
+      </div>
+    </ModalShell>
   );
 }
+
 function ResetConfirmModal({ open, onClose, onConfirm, title, description, confirmLabel, cancelLabel, locale = 'PT-BR' }) {
   if (!open) return null;
 
   return (
-    <div
-      className="modal-backdrop"
-      onMouseDown={(e) => {
-        e.currentTarget.dataset.backdropPressed = String(e.target === e.currentTarget);
-      }}
-      onMouseUp={(e) => {
-        const pressedOnBackdrop = e.currentTarget.dataset.backdropPressed === 'true';
-        if (pressedOnBackdrop && e.target === e.currentTarget) {
-          onClose();
-        }
-        e.currentTarget.dataset.backdropPressed = 'false';
-      }}
-    >
-      <div
-        className="modal-card glass confirm-modal-card"
-        onMouseDown={(e) => {
-          const backdrop = e.currentTarget.parentElement;
-          if (backdrop) backdrop.dataset.backdropPressed = 'false';
-        }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="confirm-modal-icon danger">
-          <Trash2 size={22} />
-        </div>
-
-        <div className="confirm-modal-content">
-          <div className="section-title">{title}</div>
-          <div className="section-subtitle confirm-modal-text">{description}</div>
-        </div>
-
-        <div className="task-actions-row end confirm-modal-actions">
-          <button className="ghost-btn" onClick={onClose}>{cancelLabel || (locale === 'EN-US' ? 'Cancel' : 'Cancelar')}</button>
-          <button className="danger-btn" onClick={onConfirm}>
-            <Trash2 size={16} />
-            {confirmLabel}
-          </button>
-        </div>
+    <ModalShell open={open} onClose={onClose} cardClassName="confirm-modal-card" allowBackdropClose={false}>
+      <div className="confirm-modal-icon danger">
+        <Trash2 size={22} />
       </div>
-    </div>
+
+      <div className="confirm-modal-content">
+        <div className="section-title">{title}</div>
+        <div className="section-subtitle confirm-modal-text">{description}</div>
+      </div>
+
+      <div className="task-actions-row end confirm-modal-actions">
+        <button className="ghost-btn" onClick={onClose}>{cancelLabel || (locale === 'EN-US' ? 'Cancel' : 'Cancelar')}</button>
+        <button className="danger-btn" onClick={onConfirm}>
+          <Trash2 size={16} />
+          {confirmLabel}
+        </button>
+      </div>
+    </ModalShell>
   );
 }
 
