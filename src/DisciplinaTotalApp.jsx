@@ -23,101 +23,42 @@ const INDEXED_DB_VERSION = 1;
 const INDEXED_DB_STORE = 'app_state';
 const SNAKE_IMG_SRC = `${import.meta.env.BASE_URL}ouroboros.png`;
 
-const todayISO = () => new Date().toISOString().slice(0, 10);
+const pad2 = (n) => String(n).padStart(2, '0');
+
+const toLocalISODate = (date) => {
+  const d = new Date(date);
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+};
+
+const parseISODateLocal = (isoDate) => {
+  const [year, month, day] = isoDate.split('-').map(Number);
+  return new Date(year, month - 1, day);
+};
+
+const todayISO = () => toLocalISODate(new Date());
+
 const uid = () => Math.random().toString(36).slice(2, 9);
+
 const formatFullDate = (date = new Date(), locale = 'PT-BR') =>
-  new Intl.DateTimeFormat(locale, { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' }).format(date);
-const formatShort = (date, locale = 'PT-BR') => new Intl.DateTimeFormat(locale, { day: '2-digit', month: 'short' }).format(new Date(date + 'T00:00:00'));
+  new Intl.DateTimeFormat(locale, {
+    weekday: 'long',
+    day: '2-digit',
+    month: 'long',
+    year: 'numeric',
+  }).format(typeof date === 'string' ? parseISODateLocal(date) : date);
+
+const formatShort = (date, locale = 'PT-BR') =>
+  new Intl.DateTimeFormat(locale, {
+    day: '2-digit',
+    month: 'short',
+  }).format(parseISODateLocal(date));
+
 const offsetDate = (date, amount) => {
-  const d = new Date(date + 'T00:00:00');
+  const d = parseISODateLocal(date);
   d.setDate(d.getDate() + amount);
-  return d.toISOString().slice(0, 10);
+  return toLocalISODate(d);
 };
 const percentage = (n) => Math.max(0, Math.min(100, Math.round(n)));
-const WEEKDAY_OPTIONS = [
-  { value: 0, pt: 'Dom', en: 'Sun' },
-  { value: 1, pt: 'Seg', en: 'Mon' },
-  { value: 2, pt: 'Ter', en: 'Tue' },
-  { value: 3, pt: 'Qua', en: 'Wed' },
-  { value: 4, pt: 'Qui', en: 'Thu' },
-  { value: 5, pt: 'Sex', en: 'Fri' },
-  { value: 6, pt: 'Sáb', en: 'Sat' },
-];
-
-function normalizeWeekdays(value) {
-  if (!Array.isArray(value)) return [];
-  return [...new Set(value.map((item) => Number(item)).filter((item) => Number.isInteger(item) && item >= 0 && item <= 6))].sort((a, b) => a - b);
-}
-
-function getWeekdayIndex(isoDate) {
-  return new Date(`${isoDate}T00:00:00`).getDay();
-}
-
-function getForwardDateRange(days, start = todayISO()) {
-  return Array.from({ length: days }, (_, idx) => offsetDate(start, idx));
-}
-
-function isRecurringTask(task) {
-  return normalizeWeekdays(task?.weekdays).length > 0;
-}
-
-function getTaskSubtaskTemplate(task) {
-  return Array.isArray(task?.subtasks) ? task.subtasks.map((subtask) => ({ ...subtask, done: false })) : [];
-}
-
-function getTaskStatusForDate(task, date) {
-  if (!isRecurringTask(task)) return task.status || 'pending';
-  return task?.statusByDate?.[date] || 'pending';
-}
-
-function getTaskSubtasksForDate(task, date) {
-  const subtasks = getTaskSubtaskTemplate(task);
-  if (!isRecurringTask(task)) return subtasks;
-  const doneMap = task?.subtaskDoneByDate?.[date] || {};
-  return subtasks.map((subtask) => ({ ...subtask, done: !!doneMap[subtask.id] }));
-}
-
-function shouldTaskAppearOnDate(task, date) {
-  const weekdays = normalizeWeekdays(task?.weekdays);
-  if (!weekdays.length) return task?.date === date;
-  const startDate = task?.startDate || task?.date || todayISO();
-  const removedDates = Array.isArray(task?.removedDates) ? task.removedDates : [];
-  if (date < startDate) return false;
-  if (removedDates.includes(date)) return false;
-  return weekdays.includes(getWeekdayIndex(date));
-}
-
-function resolveTaskForDate(task, date) {
-  if (!shouldTaskAppearOnDate(task, date)) return null;
-  return {
-    ...task,
-    id: isRecurringTask(task) ? `${task.id}__${date}` : task.id,
-    sourceId: task.id,
-    instanceDate: date,
-    status: getTaskStatusForDate(task, date),
-    subtasks: getTaskSubtasksForDate(task, date),
-  };
-}
-
-function getResolvedTasksForDate(tasks, date) {
-  return tasks
-    .map((task) => resolveTaskForDate(task, date))
-    .filter(Boolean);
-}
-
-function taskProgressValue(task) {
-  if (Array.isArray(task?.subtasks) && task.subtasks.length) {
-    const doneCount = task.subtasks.filter((subtask) => subtask.done).length;
-    return doneCount / task.subtasks.length;
-  }
-  return task?.status === 'done' ? 1 : 0;
-}
-
-function habitProgressValue(habit, date) {
-  const target = Math.max(1, Number(habit?.target || 1));
-  const value = Number(habit?.logs?.[date] || 0);
-  return Math.max(0, Math.min(1, value / target));
-}
 
 function sortTasksByTime(tasks) {
   return [...tasks].sort((a, b) => {
@@ -248,16 +189,7 @@ function buildPersistedState(base, parsed) {
     settings: migratePomodoroSettings({ ...base.settings, ...(parsed.settings || {}) }),
     reflections: { ...base.reflections, ...(parsed.reflections || {}) },
     appearance: { ...base.appearance, ...(parsed.appearance || {}) },
-    tasks: Array.isArray(parsed.tasks)
-      ? parsed.tasks.map((task) => ({
-          ...task,
-          weekdays: normalizeWeekdays(task.weekdays),
-          removedDates: Array.isArray(task.removedDates) ? task.removedDates : [],
-          statusByDate: task.statusByDate || {},
-          subtaskDoneByDate: task.subtaskDoneByDate || {},
-          subtasks: Array.isArray(task.subtasks) ? task.subtasks : [],
-        }))
-      : base.tasks,
+    tasks: Array.isArray(parsed.tasks) ? parsed.tasks : base.tasks,
     habits: Array.isArray(parsed.habits) ? parsed.habits : base.habits,
     history: Array.isArray(parsed.history) ? parsed.history : base.history,
   };
@@ -445,19 +377,6 @@ const UI_COPY = {
     critical: 'Crítica',
     taskDone: 'concluída',
     taskPending: 'pendente',
-    weekdays: 'Dias da semana',
-    weekdaysHelp: 'Escolha em quais dias essa rotina deve aparecer.',
-    routineToday: 'Tarefa do dia',
-    routineWeek: 'Próximos 7 dias',
-    syncCodePlaceholder: 'Dica: use 3 palavras + ano, tipo foco-estudo-noite-2026',
-    resetStatsData: 'Resetar estatísticas',
-    resetStatsDone: 'Estatísticas resetadas',
-    cloudSyncTitle: 'Sincronização em nuvem',
-    cloudSyncSub: 'Use o mesmo código no PC e no iPhone.',
-    cloudUpload: 'Enviar para nuvem',
-    cloudDownload: 'Baixar da nuvem',
-    categoryPerformance: 'Entrega por categoria (7 dias)',
-    categoryPerformanceSub: 'Mostra quais áreas estão sustentando seu resultado.',
   },
   'EN-US': {
     brandSubtitle: 'Control, progress and consistency',
@@ -532,19 +451,6 @@ const UI_COPY = {
     critical: 'Critical',
     taskDone: 'done',
     taskPending: 'pending',
-    weekdays: 'Weekdays',
-    weekdaysHelp: 'Choose the weekdays when this routine should appear.',
-    routineToday: 'Today',
-    routineWeek: 'Next 7 days',
-    syncCodePlaceholder: 'Tip: use 3 words + year, like focus-study-night-2026',
-    resetStatsData: 'Reset statistics',
-    resetStatsDone: 'Statistics reset',
-    cloudSyncTitle: 'Cloud sync',
-    cloudSyncSub: 'Use the same code on PC and iPhone.',
-    cloudUpload: 'Send to cloud',
-    cloudDownload: 'Load from cloud',
-    categoryPerformance: 'Category performance (7 days)',
-    categoryPerformanceSub: 'Shows which areas are sustaining your result.',
   },
 };
 
@@ -584,24 +490,24 @@ function getDisciplineLabel(value) {
 }
 
 function disciplineForDate(state, date) {
-  const resolvedTasks = getResolvedTasksForDate(state.tasks || [], date);
-  const taskProgress = resolvedTasks.map(taskProgressValue);
-  const habitProgress = (state.habits || []).map((habit) => habitProgressValue(habit, date));
-  const combined = [...taskProgress, ...habitProgress];
-  if (!combined.length) return 0;
-  return percentage((combined.reduce((sum, value) => sum + value, 0) / combined.length) * 100);
+  const tasks = state.tasks.filter((t) => t.date === date);
+  const habits = state.habits;
+  const taskPercent = tasks.length ? (tasks.filter((t) => t.status === 'done').length / tasks.length) * 100 : 0;
+  const habitPercent = habits.length ? (habits.filter((h) => (h.logs[date] || 0) >= h.target).length / habits.length) * 100 : 0;
+  if (!tasks.length && !habits.length) return 0;
+  if (tasks.length && habits.length) return percentage((taskPercent + habitPercent) / 2);
+  return percentage(taskPercent || habitPercent);
 }
 
 function buildFullHistory(state) {
   const today = todayISO();
-  const todayTasks = getResolvedTasksForDate(state.tasks || [], today);
   const todayEntry = {
     date: today,
     discipline: disciplineForDate(state, today),
-    tasksDone: todayTasks.filter((task) => taskProgressValue(task) >= 1).length,
-    tasksTotal: todayTasks.length,
+    tasksDone: state.tasks.filter((t) => t.date === today && t.status === 'done').length,
+    tasksTotal: state.tasks.filter((t) => t.date === today).length,
   };
-  const filtered = (state.history || []).filter((entry) => entry.date !== today);
+  const filtered = state.history.filter((h) => h.date !== today);
   return [...filtered, todayEntry].sort((a, b) => a.date.localeCompare(b.date));
 }
 
@@ -609,6 +515,8 @@ function getDateRange(lastDays) {
   const end = todayISO();
   return Array.from({ length: lastDays }, (_, idx) => offsetDate(end, -(lastDays - idx - 1)));
 }
+const getUpcomingRoutineDates = () =>
+  Array.from({ length: 6 }, (_, idx) => offsetDate(todayISO(), idx + 1));
 
 function cls(...parts) { return parts.filter(Boolean).join(' '); }
 function toastId() { return Math.random().toString(36).slice(2, 8); }
@@ -865,7 +773,6 @@ export default function DisciplinaTotalApp() {
   const [pomodoroLinkNameDraft, setPomodoroLinkNameDraft] = useState('');
   const [pomodoroUrlDraft, setPomodoroUrlDraft] = useState('');
   const [historyDate, setHistoryDate] = useState(todayISO());
-  const [routineView, setRoutineView] = useState('today');
   const fileRef = useRef(null);
   const bgUploadRef = useRef(null);
   const toast = useToast();
@@ -921,7 +828,8 @@ export default function DisciplinaTotalApp() {
         return;
       }
 
-      setState((prev) => buildPersistedState(prev, cloudData.state || {}));
+      const merged = buildPersistedState(sampleState(), cloudData.state);
+      setState(merged);
       toast.push(
         locale === 'EN-US' ? 'Loaded from cloud successfully' : 'Carregado da nuvem com sucesso'
       );
@@ -985,12 +893,18 @@ export default function DisciplinaTotalApp() {
   const backgroundValue = usingImageBackground ? `url(${state.appearance.backgroundImage})` : themeGradients[state.appearance.themeMode || 'dark'];
   const fullHistory = useMemo(() => buildFullHistory(state), [state]);
   const weekDates = getDateRange(7);
+  const upcomingDates = getUpcomingRoutineDates();
   const weekSeries = weekDates.map((d) => ({ label: formatShort(d, locale), raw: d, disciplina: disciplineForDate(state, d) }));
   const monthSeries = getDateRange(30).map((d) => ({ label: formatShort(d, locale), raw: d, disciplina: disciplineForDate(state, d) }));
 
-  const todayTasksRaw = getResolvedTasksForDate(state.tasks, todayISO());
+  const todayTasksRaw = state.tasks.filter((t) => t.date === todayISO());
   const todayTasks = sortTasksByTime(todayTasksRaw);
-  const filteredTasks = getResolvedTasksForSearch(todayISO());
+  const filteredTasks = sortTasksByTime(
+    todayTasksRaw.filter((task) =>
+      task.title.toLowerCase().includes(search.toLowerCase()) ||
+      (task.description || '').toLowerCase().includes(search.toLowerCase())
+    )
+  );
 
   const todayDiscipline = disciplineForDate(state, todayISO());
   const disciplineMeta = getDisciplineLabel(todayDiscipline);
@@ -1012,8 +926,8 @@ const top3 = sortTasksByTime([...todayTasks].sort((a, b) => priorityValue(b.prio
 const weeklyGoals = (state.settings.weeklyGoals || []).map((goal) => goal.trim()).filter(Boolean);
 const hasWeeklyGoals = weeklyGoals.length > 0;
 const todayCompletedHabits = state.habits.filter((habit) => (habit.logs[todayISO()] || 0) >= Math.max(1, Number(habit.target || 1))).length;
-const weekTasks = weekDates.flatMap((date) => getResolvedTasksForDate(state.tasks, date));
-const weekDoneTasks = weekTasks.reduce((sum, task) => sum + taskProgressValue(task), 0);
+const weekTasks = state.tasks.filter((task) => weekDates.includes(task.date));
+const weekDoneTasks = weekTasks.filter((task) => task.status === 'done').length;
 const weekTotalTasks = weekTasks.length;
 const weekCompletionRate = percentage(weekTotalTasks ? (weekDoneTasks / weekTotalTasks) * 100 : 0);
 const daysAboveGoal = weekSeries.filter((item) => item.disciplina >= state.settings.dailyGoal).length;
@@ -1021,8 +935,8 @@ const bestWeekDay = [...weekSeries].sort((a, b) => b.disciplina - a.disciplina)[
 const worstWeekDay = [...weekSeries].sort((a, b) => a.disciplina - b.disciplina)[0] || null;
 const nextPendingTask = todayTasks.find((task) => task.status !== 'done') || null;
 const weeklyTaskFlow = weekDates.map((date) => {
-  const tasksForDay = sortTasksByTime(getResolvedTasksForDate(state.tasks, date));
-  const doneForDay = tasksForDay.reduce((sum, task) => sum + taskProgressValue(task), 0);
+  const tasksForDay = sortTasksByTime(state.tasks.filter((task) => task.date === date));
+  const doneForDay = tasksForDay.filter((task) => task.status === 'done').length;
   return {
     label: formatShort(date),
     raw: date,
@@ -1034,7 +948,7 @@ const priorityCompletionData = ['crítica', 'alta', 'média', 'baixa']
   .map((priority) => {
     const items = weekTasks.filter((task) => task.priority === priority);
     const total = items.length;
-    const entregues = items.reduce((sum, task) => sum + taskProgressValue(task), 0);
+    const entregues = items.filter((task) => task.status === 'done').length;
     return {
       name: priority,
       total,
@@ -1058,109 +972,31 @@ const habitConsistencyData = state.habits
 const chartGrid = isLight ? 'rgba(15,23,42,0.08)' : 'rgba(255,255,255,0.08)';
 const chartAxis = isLight ? 'rgba(15,23,42,0.48)' : 'rgba(255,255,255,0.45)';
 const mutedBarColor = isLight ? '#cbd5e1' : 'rgba(255,255,255,0.22)';
-const rollingRoutineDates = getForwardDateRange(7, todayISO());
 
 function updateState(updater) { setState((prev) => updater(prev)); }
 
-function getOriginalTask(taskId) {
-  const cleanId = String(taskId || '').split('__')[0];
-  return state.tasks.find((task) => task.id === cleanId) || null;
-}
-
-function getResolvedTasksForSearch(date) {
-  return sortTasksByTime(
-    getResolvedTasksForDate(state.tasks, date).filter(
-      (task) =>
-        task.title.toLowerCase().includes(search.toLowerCase()) ||
-        (task.description || '').toLowerCase().includes(search.toLowerCase())
-    )
-  );
-}
-
-const routineSections = (routineView === 'today' ? [todayISO()] : rollingRoutineDates).map((date) => ({
-  date,
-  tasks: getResolvedTasksForSearch(date),
-}));
-
-const categoryPerformanceData = (state.settings.categories || ['saúde', 'espiritualidade', 'estudo', 'trabalho', 'pessoal', 'financeiro'])
-  .map((category) => {
-    const weekResolvedTasks = weekDates.flatMap((date) => getResolvedTasksForDate(state.tasks, date));
-    const taskItems = weekResolvedTasks.filter((task) => task.category === category).map(taskProgressValue);
-    const habitItems = state.habits.filter((habit) => habit.category === category).flatMap((habit) => weekDates.map((date) => habitProgressValue(habit, date)));
-    const items = [...taskItems, ...habitItems];
-    return {
-      name: categoryLabel(category, locale),
-      taxa: items.length ? percentage((items.reduce((sum, value) => sum + value, 0) / items.length) * 100) : 0,
-      itens: items.length,
-    };
-  })
-  .filter((item) => item.itens > 0);
-
   function setTaskStatus(taskId, status) {
-    const originalId = String(taskId || '').split('__')[0];
-    const occurrenceDate = String(taskId || '').includes('__') ? String(taskId).split('__')[1] : null;
-
     updateState((prev) => ({
       ...prev,
-      tasks: prev.tasks.map((task) => {
-        if (task.id !== originalId) return task;
-
-        if (isRecurringTask(task) && occurrenceDate) {
-          const subtasks = getTaskSubtaskTemplate(task);
-          const nextStatusByDate = { ...(task.statusByDate || {}), [occurrenceDate]: status };
-          const nextSubtaskDoneByDate = { ...(task.subtaskDoneByDate || {}) };
-
-          if (subtasks.length) {
-            nextSubtaskDoneByDate[occurrenceDate] = Object.fromEntries(
-              subtasks.map((subtask) => [subtask.id, status === 'done'])
-            );
-          }
-
-          return {
-            ...task,
-            statusByDate: nextStatusByDate,
-            subtaskDoneByDate: nextSubtaskDoneByDate,
-          };
-        }
-
-        const subtasks = Array.isArray(task.subtasks) ? task.subtasks : [];
-        if (!subtasks.length) return { ...task, status };
-
-        if (status === 'done') {
-          return { ...task, status: 'done', subtasks: subtasks.map((subtask) => ({ ...subtask, done: true })) };
-        }
-
-        return { ...task, status, subtasks: subtasks.map((subtask) => ({ ...subtask, done: false })) };
+      tasks: prev.tasks.map((t) => {
+        if (t.id !== taskId) return t;
+        const subtasks = Array.isArray(t.subtasks) ? t.subtasks : [];
+        if (!subtasks.length) return { ...t, status };
+        if (status === 'done') return { ...t, status: 'done', subtasks: subtasks.map((s) => ({ ...s, done: true })) };
+        return { ...t, status, subtasks: subtasks.map((s) => ({ ...s, done: false })) };
       }),
     }));
-
     toast.push(status === 'done' ? 'Tarefa concluída' : 'Status atualizado');
   }
 
   function toggleSubtask(taskId, subtaskId) {
-    const originalId = String(taskId || '').split('__')[0];
-    const occurrenceDate = String(taskId || '').includes('__') ? String(taskId).split('__')[1] : null;
-
     updateState((prev) => ({
       ...prev,
-      tasks: prev.tasks.map((task) => {
-        if (task.id !== originalId) return task;
-
-        if (isRecurringTask(task) && occurrenceDate) {
-          const currentMap = { ...(task.subtaskDoneByDate?.[occurrenceDate] || {}) };
-          currentMap[subtaskId] = !currentMap[subtaskId];
-          const subtasks = getTaskSubtaskTemplate(task);
-          const allDone = subtasks.length > 0 && subtasks.every((subtask) => !!currentMap[subtask.id]);
-          return {
-            ...task,
-            subtaskDoneByDate: { ...(task.subtaskDoneByDate || {}), [occurrenceDate]: currentMap },
-            statusByDate: { ...(task.statusByDate || {}), [occurrenceDate]: allDone ? 'done' : 'pending' },
-          };
-        }
-
-        const subtasks = (task.subtasks || []).map((subtask) => (subtask.id === subtaskId ? { ...subtask, done: !subtask.done } : subtask));
-        const allDone = subtasks.length > 0 && subtasks.every((subtask) => subtask.done);
-        return { ...task, subtasks, status: allDone ? 'done' : task.status === 'done' ? 'pending' : task.status };
+      tasks: prev.tasks.map((t) => {
+        if (t.id !== taskId) return t;
+        const subtasks = (t.subtasks || []).map((s) => (s.id === subtaskId ? { ...s, done: !s.done } : s));
+        const allDone = subtasks.length > 0 && subtasks.every((s) => s.done);
+        return { ...t, subtasks, status: allDone ? 'done' : t.status === 'done' ? 'pending' : t.status };
       }),
     }));
   }
@@ -1177,100 +1013,30 @@ const categoryPerformanceData = (state.settings.categories || ['saúde', 'espiri
     }));
   }
 
-  function removeTask(taskId) {
-    const originalId = String(taskId || '').split('__')[0];
-    const occurrenceDate = String(taskId || '').includes('__') ? String(taskId).split('__')[1] : null;
-
-    updateState((prev) => ({
-      ...prev,
-      tasks: prev.tasks.flatMap((task) => {
-        if (task.id !== originalId) return [task];
-        if (isRecurringTask(task) && occurrenceDate) {
-          return [{ ...task, removedDates: [...new Set([...(task.removedDates || []), occurrenceDate])] }];
-        }
-        return [];
-      }),
-    }));
-
-    toast.push(locale === 'EN-US' ? 'Task removed' : 'Tarefa removida');
-  }
-
+  function removeTask(taskId) { updateState((prev) => ({ ...prev, tasks: prev.tasks.filter((t) => t.id !== taskId) })); toast.push(locale === 'EN-US' ? 'Task removed' : 'Tarefa removida'); }
   function duplicateTask(task) {
-    const original = getOriginalTask(task.sourceId || task.id) || task;
-    const duplicate = {
-      ...original,
-      id: uid(),
-      title: locale === 'EN-US' ? `${original.title} (copy)` : `${original.title} (cópia)`,
-      status: 'pending',
-      statusByDate: {},
-      subtaskDoneByDate: {},
-      removedDates: [],
-      date: task.instanceDate || original.date || todayISO(),
-      startDate: task.instanceDate || original.startDate || original.date || todayISO(),
-      subtasks: getTaskSubtaskTemplate(original).map((subtask) => ({ ...subtask, done: false })),
-    };
-    updateState((prev) => ({ ...prev, tasks: [...prev.tasks, duplicate] }));
-    toast.push(locale === 'EN-US' ? 'Task duplicated' : 'Tarefa duplicada');
+    const copy = { ...task, id: uid(), title: `${task.title} (cópia)` };
+    updateState((prev) => ({ ...prev, tasks: [...prev.tasks, copy] }));
+    toast.push('Tarefa duplicada');
   }
 
   function openNewTask() {
-    setEditingTask({
-      id: uid(),
-      title: '',
-      description: '',
-      category: 'pessoal',
-      priority: 'média',
-      time: '',
-      status: 'pending',
-      date: todayISO(),
-      startDate: todayISO(),
-      weekdays: [],
-      removedDates: [],
-      statusByDate: {},
-      subtaskDoneByDate: {},
-      color: priorityColor('média'),
-      subtasks: [],
-    });
+    setEditingTask({ id: uid(), title: '', description: '', category: 'pessoal', priority: 'média', time: '', status: 'pending', date: todayISO(), color: priorityColor('média'), subtasks: [] });
     setShowTaskModal(true);
   }
 
   function saveTask(task) {
-    const cleanedSubtasks = (task.subtasks || [])
-      .filter((subtask) => (subtask.title || '').trim())
-      .map((subtask) => ({ ...subtask, title: subtask.title.trim(), done: false }));
-
-    const recurring = normalizeWeekdays(task.weekdays).length > 0;
+    const cleanedSubtasks = (task.subtasks || []).filter((s) => (s.title || '').trim()).map((s) => ({ ...s, title: s.title.trim() }));
     const normalizedTask = {
-      ...task,
-      date: task.date || todayISO(),
-      startDate: task.startDate || task.date || todayISO(),
-      weekdays: normalizeWeekdays(task.weekdays),
-      removedDates: Array.isArray(task.removedDates) ? task.removedDates : [],
-      color: priorityColor(task.priority),
-      subtasks: cleanedSubtasks,
-      status: recurring
-        ? 'pending'
-        : cleanedSubtasks.length && cleanedSubtasks.every((subtask) => subtask.done)
-          ? 'done'
-          : task.status === 'done' && cleanedSubtasks.length
-            ? 'pending'
-            : task.status,
-      statusByDate: recurring ? (task.statusByDate || {}) : undefined,
-      subtaskDoneByDate: recurring ? (task.subtaskDoneByDate || {}) : undefined,
+      ...task, color: priorityColor(task.priority), subtasks: cleanedSubtasks,
+      status: cleanedSubtasks.length && cleanedSubtasks.every((s) => s.done) ? 'done' : task.status === 'done' && cleanedSubtasks.length ? 'pending' : task.status,
     };
-
     updateState((prev) => {
-      const exists = prev.tasks.some((currentTask) => currentTask.id === normalizedTask.id);
-      const tasks = exists
-        ? prev.tasks.map((currentTask) => (currentTask.id === normalizedTask.id ? normalizedTask : currentTask))
-        : [...prev.tasks, normalizedTask];
-
+      const exists = prev.tasks.some((t) => t.id === normalizedTask.id);
+      const tasks = exists ? prev.tasks.map((t) => (t.id === normalizedTask.id ? normalizedTask : t)) : [...prev.tasks, normalizedTask];
       return { ...prev, tasks };
     });
-
-    setShowTaskModal(false);
-    setEditingTask(null);
-    toast.push(locale === 'EN-US' ? 'Task saved' : 'Tarefa salva');
+    setShowTaskModal(false); setEditingTask(null); toast.push('Tarefa salva');
   }
 
   function openNewHabit() {
@@ -1304,13 +1070,8 @@ const categoryPerformanceData = (state.settings.categories || ['saúde', 'espiri
   function importData(file) {
     const reader = new FileReader();
     reader.onload = () => {
-      try {
-        const parsed = JSON.parse(String(reader.result));
-        setState((prev) => buildPersistedState(prev, parsed || {}));
-        toast.push(locale === 'EN-US' ? 'Backup imported' : 'Backup importado');
-      } catch {
-        toast.push(locale === 'EN-US' ? 'Invalid file' : 'Arquivo inválido');
-      }
+      try { const parsed = JSON.parse(String(reader.result)); setState(parsed); toast.push(locale === 'EN-US' ? 'Backup imported' : 'Backup importado'); }
+      catch { toast.push(locale === 'EN-US' ? 'Invalid file' : 'Arquivo inválido'); }
     };
     reader.readAsText(file);
   }
@@ -1319,35 +1080,6 @@ const categoryPerformanceData = (state.settings.categories || ['saúde', 'espiri
     setState(emptyState());
     setShowResetModal(false);
     toast.push(copy.resetDone);
-  }
-
-  function resetStatisticsOnly() {
-    const today = todayISO();
-    updateState((prev) => ({
-      ...prev,
-      history: [],
-      reflections: {},
-      tasks: (prev.tasks || []).map((task) => {
-        if (isRecurringTask(task)) {
-          const futureStatus = Object.fromEntries(Object.entries(task.statusByDate || {}).filter(([date]) => date >= today));
-          const futureSubtasks = Object.fromEntries(Object.entries(task.subtaskDoneByDate || {}).filter(([date]) => date >= today));
-          return { ...task, statusByDate: futureStatus, subtaskDoneByDate: futureSubtasks };
-        }
-        if ((task.date || today) < today) {
-          return {
-            ...task,
-            status: 'pending',
-            subtasks: Array.isArray(task.subtasks) ? task.subtasks.map((subtask) => ({ ...subtask, done: false })) : [],
-          };
-        }
-        return task;
-      }),
-      habits: (prev.habits || []).map((habit) => ({
-        ...habit,
-        logs: Object.fromEntries(Object.entries(habit.logs || {}).filter(([date]) => date >= today)),
-      })),
-    }));
-    toast.push(copy.resetStatsDone);
   }
 
   function applyBackgroundFile(file) {
@@ -1643,89 +1375,42 @@ if (page === 'dashboard') {
       return (
         <div className="stack large-gap">
           <section className="glass section-card">
-            <SectionHeader
-              title={locale === 'EN-US' ? 'Your operational board' : 'Seu painel operacional'}
-              subtitle={locale === 'EN-US' ? 'Filter, prioritize, execute and track.' : 'Filtre, priorize, execute e registre.'}
-              action={<button className="primary-btn" onClick={openNewTask}><Plus size={16} /> {copy.newTask}</button>}
-            />
-            <div className="toolbar-row" style={{ flexWrap: 'wrap' }}>
-              <button className={cls('ghost-btn', routineView === 'today' && 'active')} onClick={() => setRoutineView('today')} style={routineView === 'today' ? { background: 'var(--primary)', color: '#000', borderColor: 'transparent' } : {}}>
-                {copy.routineToday}
-              </button>
-              <button className={cls('ghost-btn', routineView === 'week' && 'active')} onClick={() => setRoutineView('week')} style={routineView === 'week' ? { background: 'var(--primary)', color: '#000', borderColor: 'transparent' } : {}}>
-                {copy.routineWeek}
-              </button>
-              <div className="search-box">
-                <Search size={16} />
-                <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={locale === 'EN-US' ? 'Search task' : 'Buscar tarefa'} />
-              </div>
+            <SectionHeader title={locale === 'EN-US' ? 'Your operational board' : 'Seu painel operacional do dia'} subtitle={locale === 'EN-US' ? 'Filter, prioritize, execute and track.' : 'Filtre, priorize, execute e registre.'} action={<button className="primary-btn" onClick={openNewTask}><Plus size={16} /> {copy.newTask}</button>} />
+            <div className="toolbar-row">
+              <div className="search-box"><Search size={16} /><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder={locale === 'EN-US' ? 'Search task' : 'Buscar tarefa'} /></div>
             </div>
           </section>
-
-          <div className="stack">
-            {routineSections.map((section) => (
-              <section key={section.date} className="glass section-card">
-                <SectionHeader
-                  title={formatFullDate(new Date(`${section.date}T00:00:00`), locale)}
-                  subtitle={locale === 'EN-US' ? `${section.tasks.length} task(s)` : `${section.tasks.length} tarefa(s)`}
-                />
-                {section.tasks.length ? (
-                  <div className="task-grid">
-                    {section.tasks.map((task) => (
-                      <motion.div key={task.id} layout className="glass task-card-premium">
-                        <div className="task-card-body">
-                          <button className="task-check" onClick={() => setTaskStatus(task.id, task.status === 'done' ? 'pending' : 'done')}>
-                            {taskProgressValue(task) >= 1 ? <CheckCircle2 size={20} /> : <Circle size={20} />}
-                          </button>
-                          <div className="task-card-copy">
-                            <div className={cls('task-card-title', taskProgressValue(task) >= 1 && 'done')}>{task.title}</div>
-                            <div className="task-card-meta">
-                              {categoryLabel(task.category, locale)} • {priorityLabel(task.priority, locale)} {task.time ? `• ${task.time}` : ''}
-                              {normalizeWeekdays(task.weekdays).length ? ` • ${WEEKDAY_OPTIONS.filter((option) => normalizeWeekdays(task.weekdays).includes(option.value)).map((option) => (locale === 'EN-US' ? option.en : option.pt)).join(' · ')}` : ''}
-                            </div>
-                            {task.description && <p className="task-desc">{task.description}</p>}
-                            {!!task.subtasks.length && (
-                              <div className="subtask-list">
-                                {task.subtasks.map((subtask) => (
-                                  <div key={subtask.id} className="subtask-item">
-                                    <button type="button" className={cls('subtask-toggle', subtask.done && 'done')} onClick={() => toggleSubtask(task.id, subtask.id)}>
-                                      {subtask.done ? '✓' : ''}
-                                    </button>
-                                    <span className={cls(subtask.done && 'done')}>{subtask.title}</span>
-                                  </div>
-                                ))}
-                              </div>
-                            )}
-                            <div className="task-actions-row">
-                              <button className="ghost-btn" onClick={() => setTaskStatus(task.id, 'done')}>{copy.done}</button>
-                              <button className="ghost-btn" onClick={() => setTaskStatus(task.id, 'pending')}>{copy.pendingBtn}</button>
-                              <button
-                                className="ghost-btn"
-                                onClick={() => {
-                                  const original = getOriginalTask(task.sourceId || task.id);
-                                  if (original) {
-                                    setEditingTask({ ...original, date: task.instanceDate || original.date, startDate: original.startDate || original.date || task.instanceDate });
-                                    setShowTaskModal(true);
-                                  }
-                                }}
-                              >
-                                <Pencil size={14} /> {copy.edit}
-                              </button>
-                              <button className="ghost-btn" onClick={() => duplicateTask(task)}>{copy.duplicate}</button>
-                              <button className="danger-btn" onClick={() => removeTask(task.id)}><Trash2 size={14} /> {copy.delete}</button>
-                            </div>
+          <div className="task-grid">
+            {filteredTasks.map((task) => (
+              <motion.div key={task.id} layout className="glass task-card-premium">
+                <div className="task-card-body">
+                  <button className="task-check" onClick={() => setTaskStatus(task.id, task.status === 'done' ? 'pending' : 'done')}>
+                    {task.status === 'done' ? <CheckCircle2 size={20} /> : <Circle size={20} />}
+                  </button>
+                  <div className="task-card-copy">
+                    <div className={cls('task-card-title', task.status === 'done' && 'done')}>{task.title}</div>
+                    <div className="task-card-meta">{categoryLabel(task.category, locale)} • {priorityLabel(task.priority, locale)} {task.time ? `• ${task.time}` : ''}</div>
+                    {task.description && <p className="task-desc">{task.description}</p>}
+                    {!!task.subtasks.length && (
+                      <div className="subtask-list">
+                        {task.subtasks.map((s) => (
+                          <div key={s.id} className="subtask-item">
+                            <button type="button" className={cls('subtask-toggle', s.done && 'done')} onClick={() => toggleSubtask(task.id, s.id)}>{s.done ? '✓' : ''}</button>
+                            <span className={cls(s.done && 'done')}>{s.title}</span>
                           </div>
-                        </div>
-                      </motion.div>
-                    ))}
+                        ))}
+                      </div>
+                    )}
+                    <div className="task-actions-row">
+                      <button className="ghost-btn" onClick={() => setTaskStatus(task.id, 'done')}>{copy.done}</button>
+                      <button className="ghost-btn" onClick={() => setTaskStatus(task.id, 'pending')}>{copy.pendingBtn}</button>
+                      <button className="ghost-btn" onClick={() => { setEditingTask(task); setShowTaskModal(true); }}><Pencil size={14} /> {copy.edit}</button>
+                      <button className="ghost-btn" onClick={() => duplicateTask(task)}>{copy.duplicate}</button>
+                      <button className="danger-btn" onClick={() => removeTask(task.id)}><Trash2 size={14} /> {copy.delete}</button>
+                    </div>
                   </div>
-                ) : (
-                  <div className="empty-state-card">
-                    <div className="row-title">{locale === 'EN-US' ? 'Nothing scheduled.' : 'Nada programado.'}</div>
-                    <div className="row-sub">{locale === 'EN-US' ? 'Use the weekday selection to make routines appear automatically.' : 'Use a seleção de dias para a rotina aparecer automaticamente.'}</div>
-                  </div>
-                )}
-              </section>
+                </div>
+              </motion.div>
             ))}
           </div>
         </div>
@@ -1812,7 +1497,7 @@ if (page === 'dashboard') {
             <div className="detail-stat"><div className="eyebrow">{copy.discipline}</div><div className="big-number">{selected?.discipline || 0}%</div></div>
             <div className="stack small-gap">
               <div className="row-title">{locale === 'EN-US' ? 'Tasks' : 'Tarefas'}</div>
-              {sortTasksByTime(getResolvedTasksForDate(state.tasks, selected?.date || todayISO())).map((task) => (
+              {sortTasksByTime(state.tasks.filter((t) => t.date === selected?.date)).map((task) => (
                 <div key={task.id} className="simple-card">
                   <div className="row-title">{task.title}</div>
                   <div className="row-sub">{categoryLabel(task.category, locale)} • {statusLabel(task.status, locale)}</div>
@@ -1989,19 +1674,8 @@ if (page === 'stats') {
             <button className="ghost-btn" onClick={exportData}><Download size={16} /> {copy.exportJson}</button>
             <button className="ghost-btn" onClick={() => fileRef.current?.click()}><Upload size={16} /> {copy.importJson}</button>
             <input ref={fileRef} type="file" accept="application/json" hidden onChange={(e) => e.target.files?.[0] && importData(e.target.files[0])} />
-            <button className="ghost-btn" onClick={resetStatisticsOnly}><BarChart3 size={16} /> {copy.resetStatsData}</button>
             <button className="danger-btn" onClick={() => setShowResetModal(true)}><Trash2 size={16} /> {copy.resetAllData}</button>
           </div>
-
-          <SectionHeader title={copy.cloudSyncTitle} subtitle={copy.cloudSyncSub} />
-          <div className="stack">
-            <input value={syncKey} onChange={(event) => setSyncKey(event.target.value)} placeholder={copy.syncCodePlaceholder} />
-            <div className="toolbar-row" style={{ flexWrap: 'wrap' }}>
-              <button className="ghost-btn" onClick={handleCloudUpload} disabled={cloudSyncBusy}><Upload size={16} /> {copy.cloudUpload}</button>
-              <button className="ghost-btn" onClick={handleCloudDownload} disabled={cloudSyncBusy}><Download size={16} /> {copy.cloudDownload}</button>
-            </div>
-          </div>
-
           <SectionHeader title={copy.weeklyGoals} subtitle={copy.onePerLine} />
           <textarea
             className="weekly-goals-textarea"
@@ -2022,17 +1696,6 @@ if (page === 'stats') {
       </div>
     );
   })();
-
-  if (!storageReady) {
-    return (
-      <LoadingBootScreen
-        locale={locale}
-        isLight={isLight}
-        primary={state.appearance.primary}
-        accent={state.appearance.accent}
-      />
-    );
-  }
 
   return (
     <div
@@ -2186,14 +1849,13 @@ function MiniStat({ label, value }) {
   return <div className="mini-stat"><div className="metric-label">{label}</div><div className="metric-value small">{value}</div></div>;
 }
 function TaskMiniRow({ task, onSetTaskStatus, locale = 'PT-BR' }) {
-  const progress = taskProgressValue(task);
   return (
     <div className="task-mini-row">
-      <button className="task-check" onClick={() => onSetTaskStatus(task.id, progress >= 1 ? 'pending' : 'done')}>
-        {progress >= 1 ? <CheckCircle2 size={18} /> : <Circle size={18} />}
+      <button className="task-check" onClick={() => onSetTaskStatus(task.id, task.status === 'done' ? 'pending' : 'done')}>
+        {task.status === 'done' ? <CheckCircle2 size={18} /> : <Circle size={18} />}
       </button>
       <div className="task-mini-copy">
-        <div className={cls('row-title', progress >= 1 && 'done')}>{task.title}</div>
+        <div className={cls('row-title', task.status === 'done' && 'done')}>{task.title}</div>
         <div className="row-sub">{categoryLabel(task.category, locale)}{task.time ? ` • ${task.time}` : ''}</div>
       </div>
       <span className={cls('priority-pill', task.priority)}>{priorityLabel(task.priority, locale)}</span>
@@ -2234,30 +1896,9 @@ function NumberField({ label, value, onCommit, min = 0, placeholder = '' }) {
 function TaskModal({ open, onClose, task, onSave, categories, locale = 'PT-BR' }) {
   const copy = getCopy(locale);
   const [draft, setDraft] = useState(null);
-
-  useEffect(() => {
-    setDraft(
-      task
-        ? {
-            ...task,
-            weekdays: normalizeWeekdays(task.weekdays),
-            subtasks: task.subtasks?.length ? task.subtasks : [{ id: uid(), title: '', done: false }],
-          }
-        : null,
-    );
-  }, [task]);
-
+  useEffect(() => setDraft(task ? { ...task, subtasks: task.subtasks?.length ? task.subtasks : [{ id: uid(), title: '', done: false }] } : null), [task]);
   if (!open || !draft) return null;
-
-  function updateSubtask(index, value) {
-    setDraft((prev) => ({
-      ...prev,
-      subtasks: prev.subtasks.map((subtask, subtaskIndex) =>
-        subtaskIndex === index ? { ...subtask, title: value } : subtask
-      ),
-    }));
-  }
-
+  function updateSubtask(index, value) { setDraft((prev) => ({ ...prev, subtasks: prev.subtasks.map((s, i) => (i === index ? { ...s, title: value } : s)) })); }
   function addSubtask(afterIndex = null) {
     setDraft((prev) => {
       const nextItem = { id: uid(), title: '', done: false };
@@ -2267,136 +1908,48 @@ function TaskModal({ open, onClose, task, onSave, categories, locale = 'PT-BR' }
       return { ...prev, subtasks };
     });
   }
-
   function removeSubtask(index) {
-    setDraft((prev) => {
-      const subtasks = (prev.subtasks || []).filter((_, subtaskIndex) => subtaskIndex !== index);
-      return { ...prev, subtasks: subtasks.length ? subtasks : [{ id: uid(), title: '', done: false }] };
-    });
+    setDraft((prev) => { const subtasks = (prev.subtasks || []).filter((_, i) => i !== index); return { ...prev, subtasks: subtasks.length ? subtasks : [{ id: uid(), title: '', done: false }] }; });
   }
-
-  function toggleWeekday(weekdayValue) {
-    setDraft((prev) => {
-      const current = normalizeWeekdays(prev.weekdays);
-      const next = current.includes(weekdayValue)
-        ? current.filter((item) => item !== weekdayValue)
-        : [...current, weekdayValue].sort((a, b) => a - b);
-
-      return { ...prev, weekdays: next };
-    });
-  }
-
   return (
     <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal-card glass" onClick={(event) => event.stopPropagation()}>
+      <div className="modal-card glass" onClick={(e) => e.stopPropagation()}>
         <div className="section-head-row">
-          <div>
-            <div className="section-title">
-              {task?.title ? `${copy.edit} ${copy.taskTitle.toLowerCase()}` : copy.newTask}
-            </div>
-            <div className="section-subtitle">{copy.fillMainFields}</div>
-          </div>
+          <div><div className="section-title">{task?.title ? `${copy.edit} ${copy.taskTitle.toLowerCase()}` : copy.newTask}</div><div className="section-subtitle">{copy.fillMainFields}</div></div>
           <button className="ghost-btn" onClick={onClose}>{copy.close}</button>
         </div>
-
         <div className="form-grid">
-          <Field label={copy.taskTitle}>
-            <input value={draft.title || ''} onChange={(event) => setDraft({ ...draft, title: event.target.value })} />
-          </Field>
-
+          <Field label={copy.taskTitle}><input value={draft.title || ''} onChange={(e) => setDraft({ ...draft, title: e.target.value })} /></Field>
           <Field label={copy.category}>
-            <select value={draft.category || 'pessoal'} onChange={(event) => setDraft({ ...draft, category: event.target.value })}>
-              {categories.map((category) => (
-                <option key={category} value={category}>{categoryLabel(category, locale)}</option>
-              ))}
+            <select value={draft.category || 'pessoal'} onChange={(e) => setDraft({ ...draft, category: e.target.value })}>
+              {categories.map((c) => <option key={c} value={c}>{categoryLabel(c, locale)}</option>)}
             </select>
           </Field>
-
           <Field label={copy.priority}>
-            <select value={draft.priority || 'média'} onChange={(event) => setDraft({ ...draft, priority: event.target.value, color: priorityColor(event.target.value) })}>
-              <option value="baixa">{copy.low}</option>
-              <option value="média">{copy.medium}</option>
-              <option value="alta">{copy.high}</option>
-              <option value="crítica">{copy.critical}</option>
+            <select value={draft.priority || 'média'} onChange={(e) => setDraft({ ...draft, priority: e.target.value, color: priorityColor(e.target.value) })}>
+              <option value="baixa">{copy.low}</option><option value="média">{copy.medium}</option><option value="alta">{copy.high}</option><option value="crítica">{copy.critical}</option>
             </select>
           </Field>
-
-          <Field label={copy.time}>
-            <input value={draft.time || ''} onChange={(event) => setDraft({ ...draft, time: event.target.value })} placeholder="08:00" />
-          </Field>
-
-          <div className="field" style={{ gridColumn: '1 / -1' }}>
-            <span>{copy.weekdays}</span>
-            <div className="toolbar-row" style={{ flexWrap: 'wrap' }}>
-              {WEEKDAY_OPTIONS.map((option) => {
-                const active = normalizeWeekdays(draft.weekdays).includes(option.value);
-                return (
-                  <button
-                    key={option.value}
-                    type="button"
-                    className={cls('ghost-btn', active && 'active')}
-                    onClick={() => toggleWeekday(option.value)}
-                    style={active ? { background: 'var(--primary)', color: '#000', borderColor: 'transparent' } : {}}
-                  >
-                    {locale === 'EN-US' ? option.en : option.pt}
-                  </button>
-                );
-              })}
-            </div>
-            <small className="section-subtitle" style={{ marginTop: 8 }}>{copy.weekdaysHelp}</small>
-          </div>
-
-          <div className="field helper-card">
-            <span>{copy.discipline}</span>
-            <small>{copy.disciplineHelp}</small>
-          </div>
-
-          <Field label={copy.description}>
-            <textarea value={draft.description || ''} onChange={(event) => setDraft({ ...draft, description: event.target.value })} />
-          </Field>
-
+          <Field label={copy.time}><input value={draft.time || ''} onChange={(e) => setDraft({ ...draft, time: e.target.value })} placeholder="08:00" /></Field>
+          <div className="field helper-card"><span>{copy.discipline}</span><small>{copy.disciplineHelp}</small></div>
+          <Field label={copy.description}><textarea value={draft.description || ''} onChange={(e) => setDraft({ ...draft, description: e.target.value })} /></Field>
           <div className="field subtasks-editor">
             <span>{copy.subtasks}</span>
             <div className="subtask-editor-list">
-              {(draft.subtasks || []).map((subtask, index) => (
+              {(draft.subtasks || []).map((subtask, idx) => (
                 <div key={subtask.id} className="subtask-editor-row">
-                  <input
-                    value={subtask.title || ''}
-                    onChange={(event) => updateSubtask(index, event.target.value)}
-                    placeholder={locale === 'EN-US' ? `Subtask ${index + 1}` : `Subtarefa ${index + 1}`}
-                    onKeyDown={(event) => {
-                      if (event.key === 'Enter') {
-                        event.preventDefault();
-                        addSubtask(index);
-                      }
-                    }}
-                  />
-                  <button type="button" className="ghost-btn compact round" onClick={() => addSubtask(index)}>+</button>
-                  <button type="button" className="danger-btn compact round" onClick={() => removeSubtask(index)}>−</button>
+                  <input value={subtask.title || ''} onChange={(e) => updateSubtask(idx, e.target.value)} placeholder={locale === 'EN-US' ? `Subtask ${idx + 1}` : `Subtarefa ${idx + 1}`} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addSubtask(idx); } }} />
+                  <button type="button" className="ghost-btn compact round" onClick={() => addSubtask(idx)}>+</button>
+                  <button type="button" className="danger-btn compact round" onClick={() => removeSubtask(idx)}>−</button>
                 </div>
               ))}
             </div>
-            <button type="button" className="ghost-btn" onClick={() => addSubtask()}>
-              <Plus size={14} /> {locale === 'EN-US' ? 'Add subtask' : 'Adicionar subtarefa'}
-            </button>
+            <button type="button" className="ghost-btn" onClick={() => addSubtask()}><Plus size={14} /> {locale === 'EN-US' ? 'Add subtask' : 'Adicionar subtarefa'}</button>
           </div>
         </div>
-
         <div className="task-actions-row end">
           <button className="ghost-btn" onClick={onClose}>{locale === 'EN-US' ? 'Cancel' : 'Cancelar'}</button>
-          <button
-            className="primary-btn"
-            onClick={() =>
-              draft.title?.trim() &&
-              onSave({
-                ...draft,
-                title: draft.title.trim(),
-                weekdays: normalizeWeekdays(draft.weekdays),
-              })
-            }
-          >
-            {copy.save}
-          </button>
+          <button className="primary-btn" onClick={() => draft.title?.trim() && onSave({ ...draft, title: draft.title.trim() })}>{copy.save}</button>
         </div>
       </div>
     </div>
@@ -2543,71 +2096,6 @@ function ResetConfirmModal({ open, onClose, onConfirm, title, description, confi
             {confirmLabel}
           </button>
         </div>
-      </div>
-    </div>
-  );
-}
-
-function LoadingBootScreen({ locale = 'PT-BR', isLight = false, primary = '#60a5fa', accent = '#c084fc' }) {
-  const snakeSrc = `${import.meta.env.BASE_URL}ouroboros.png`;
-  const title = locale === 'EN-US' ? 'Loading your command center' : 'Carregando seu centro de comando';
-  const subtitle = locale === 'EN-US'
-    ? 'Bringing back your data, habits and rhythm.'
-    : 'Trazendo de volta seus dados, hábitos e ritmo.';
-
-  return (
-    <div
-      className={cls('discipline-app', 'discipline-app-loading', isLight && 'light')}
-      style={{
-        '--primary': primary,
-        '--accent': accent,
-        '--radius': '24px',
-        '--bg-image': isLight
-          ? 'linear-gradient(135deg,#eef2ff 0%,#dfe8f4 100%)'
-          : 'linear-gradient(135deg,#070b18 0%,#10182d 44%,#211437 100%)',
-        '--bg-size': 'cover',
-        '--bg-position': 'center',
-        '--overlay': isLight ? 0.18 : 0.28,
-        '--glass-blur': '18px',
-      }}
-    >
-      <div className="bg-base" />
-      <div className="bg-overlay" />
-
-      <div className="loading-screen-shell">
-        <motion.div
-          className="loading-screen-card glass"
-          initial={{ opacity: 0, y: 24, scale: 0.96 }}
-          animate={{ opacity: 1, y: 0, scale: 1 }}
-          transition={{ duration: 0.45, ease: 'easeOut' }}
-        >
-          <motion.div
-            className="loading-brand-mark"
-            animate={{ rotate: 360 }}
-            transition={{ duration: 12, repeat: Infinity, ease: 'linear' }}
-          >
-            <img src={snakeSrc} alt="Disciplina Total" className="loading-brand-snake" />
-          </motion.div>
-
-          <div className="loading-brand-title">Disciplina Total</div>
-          <div className="loading-brand-subtitle">{title}</div>
-          <div className="loading-brand-copy">{subtitle}</div>
-
-          <div className="loading-progress-track">
-            <motion.div
-              className="loading-progress-fill"
-              initial={{ width: '18%' }}
-              animate={{ width: ['18%', '72%', '48%', '86%'] }}
-              transition={{ duration: 1.8, repeat: Infinity, ease: 'easeInOut' }}
-            />
-          </div>
-
-          <div className="loading-status-row">
-            <span className="loading-chip">IndexedDB</span>
-            <span className="loading-chip">Cloud sync</span>
-            <span className="loading-chip">Interface</span>
-          </div>
-        </motion.div>
       </div>
     </div>
   );
