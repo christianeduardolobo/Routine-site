@@ -1919,6 +1919,31 @@ if (page === 'stats') {
             <input ref={fileRef} type="file" accept="application/json" hidden onChange={(e) => e.target.files?.[0] && importData(e.target.files[0])} />
             <button className="danger-btn" onClick={() => setShowResetModal(true)}><Trash2 size={16} /> {copy.resetAllData}</button>
           </div>
+          <SectionHeader
+            title={locale === 'EN-US' ? 'Cloud sync' : 'Cloud sync'}
+            subtitle={
+              locale === 'EN-US'
+                ? 'Use a code to upload or download your state from the cloud.'
+                : 'Use um código para enviar ou baixar seu estado da nuvem.'
+            }
+          />
+          <div className="stack">
+            <input
+              value={syncKey}
+              onChange={(e) => setSyncKey(e.target.value)}
+              placeholder={locale === 'EN-US' ? 'Enter your sync code' : 'Informe seu código de sincronização'}
+            />
+            <div className="split-2">
+              <button className="ghost-btn" onClick={handleCloudUpload} disabled={cloudSyncBusy}>
+                <Upload size={16} />
+                {cloudSyncBusy ? (locale === 'EN-US' ? 'Sending...' : 'Enviando...') : (locale === 'EN-US' ? 'Send to cloud' : 'Enviar para a nuvem')}
+              </button>
+              <button className="ghost-btn" onClick={handleCloudDownload} disabled={cloudSyncBusy}>
+                <Download size={16} />
+                {cloudSyncBusy ? (locale === 'EN-US' ? 'Loading...' : 'Carregando...') : (locale === 'EN-US' ? 'Load from cloud' : 'Baixar da nuvem')}
+              </button>
+            </div>
+          </div>
           <SectionHeader title={copy.weeklyGoals} subtitle={copy.onePerLine} />
           <textarea
             className="weekly-goals-textarea"
@@ -2236,7 +2261,6 @@ function TaskModal({ open, onClose, task, onSave, categories, locale = 'PT-BR' }
       </div>
       <div className="form-grid">
         <Field label={copy.taskTitle}><input value={draft.title || ''} onChange={(e) => setDraft({ ...draft, title: e.target.value })} /></Field>
-        <Field label={locale === 'EN-US' ? 'Date' : 'Data'}><input type="date" value={draft.date || todayISO()} onChange={(e) => setDraft({ ...draft, date: e.target.value })} /></Field>
         <Field label={copy.category}>
           <select value={draft.category || 'pessoal'} onChange={(e) => setDraft({ ...draft, category: e.target.value })}>
             {categories.map((c) => <option key={c} value={c}>{categoryLabel(c, locale)}</option>)}
