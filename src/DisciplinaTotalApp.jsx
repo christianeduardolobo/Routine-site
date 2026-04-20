@@ -391,7 +391,7 @@ const UI_COPY = {
     priority: 'Prioridade',
     time: 'Horário',
     discipline: 'Disciplina',
-    disciplineHelp: 'Todas as tarefas valem igual no cálculo do dia.',
+    disciplineHelp: 'Hábitos usam progresso atual/meta e tarefas com subtarefas contam proporcionalmente no cálculo do dia.',
     description: 'Descrição',
     subtasks: 'Subtarefas',
     low: 'Baixa',
@@ -468,7 +468,7 @@ const UI_COPY = {
     priority: 'Priority',
     time: 'Time',
     discipline: 'Discipline',
-    disciplineHelp: 'Every task has the same weight in the daily score.',
+    disciplineHelp: 'Habits use current/target progress and tasks with subtasks count proportionally in the daily score.',
     description: 'Description',
     subtasks: 'Subtasks',
     low: 'Low',
@@ -517,9 +517,33 @@ function getDisciplineLabel(value) {
 
 function disciplineForDate(state, date) {
   const tasks = getTasksForDate(state, date);
-  const habits = state.habits;
-  const taskPercent = tasks.length ? (tasks.filter((t) => t.status === 'done').length / tasks.length) * 100 : 0;
-  const habitPercent = habits.length ? (habits.filter((h) => (h.logs[date] || 0) >= h.target).length / habits.length) * 100 : 0;
+  const habits = state.habits || [];
+
+  const getHabitProgress = (habit) => {
+    const target = Math.max(1, Number(habit?.target || 1));
+    const current = Math.max(0, Number(habit?.logs?.[date] || 0));
+    return Math.max(0, Math.min(1, current / target));
+  };
+
+  const getTaskProgress = (task) => {
+    const subtasks = Array.isArray(task?.subtasks) ? task.subtasks : [];
+
+    if (subtasks.length) {
+      const doneCount = subtasks.filter((s) => s.done).length;
+      return Math.max(task?.status === 'done' ? 1 : 0, doneCount / subtasks.length);
+    }
+
+    return task?.status === 'done' ? 1 : 0;
+  };
+
+  const taskPercent = tasks.length
+    ? (tasks.reduce((sum, task) => sum + getTaskProgress(task), 0) / tasks.length) * 100
+    : 0;
+
+  const habitPercent = habits.length
+    ? (habits.reduce((sum, habit) => sum + getHabitProgress(habit), 0) / habits.length) * 100
+    : 0;
+
   if (!tasks.length && !habits.length) return 0;
   if (tasks.length && habits.length) return percentage((taskPercent + habitPercent) / 2);
   return percentage(taskPercent || habitPercent);
