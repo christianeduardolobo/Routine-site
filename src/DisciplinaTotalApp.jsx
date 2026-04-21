@@ -457,8 +457,6 @@ const UI_COPY = {
     resetAllDescription: 'This will erase all tasks, habits, history, goals, reflections and saved settings. This is a sensitive action and cannot be undone.',
     confirmReset: 'Confirm reset',
     resetDone: 'Everything was reset',
-    weeklyGoals: 'Weekly goals',
-    onePerLine: 'One per line.',
     fullHistory: 'Full history',
     historySub: 'View your pattern by calendar and list.',
     tasksCompleted: (done, total) => `${done}/${total} tasks completed`,
@@ -918,7 +916,6 @@ export default function DisciplinaTotalApp() {
   const [pomodoroMode, setPomodoroMode] = useState('focus');
   const [pomodoroInfoOpen, setPomodoroInfoOpen] = useState(false);
   const [pomodoroCycles, setPomodoroCycles] = useState(0);
-  const [weeklyGoalsDraft, setWeeklyGoalsDraft] = useState(sampleState().settings.weeklyGoals.join('\n'));
   const [pomodoroLinkNameDraft, setPomodoroLinkNameDraft] = useState('');
   const [pomodoroUrlDraft, setPomodoroUrlDraft] = useState('');
   const [historyDate, setHistoryDate] = useState(todayISO());
@@ -1022,9 +1019,7 @@ export default function DisciplinaTotalApp() {
     if (!storageReady) return;
     saveState(state);
   }, [state, storageReady]);
-  useEffect(() => {
-    setWeeklyGoalsDraft((state.settings.weeklyGoals || []).join('\n'));
-  }, [state.settings.weeklyGoals]);
+  
   useEffect(() => {
     if (!pomodoroRunning) return;
     const t = setInterval(() => {
@@ -2006,22 +2001,6 @@ if (page === 'stats') {
               </button>
             </div>
           </div>
-          <SectionHeader title={copy.weeklyGoals} subtitle={copy.onePerLine} />
-          <textarea
-            className="weekly-goals-textarea"
-            value={weeklyGoalsDraft}
-            onChange={(e) => setWeeklyGoalsDraft(e.target.value)}
-            onBlur={() => updateState((prev) => ({ ...prev, settings: { ...prev.settings, weeklyGoals: weeklyGoalsDraft.split('\n').map((line) => line.trim()).filter(Boolean) } }))}
-            onKeyDown={(e) => {
-              if (e.key === 'Tab') {
-                e.preventDefault();
-                const target = e.currentTarget;
-                const nextValue = insertNewLineValue(target.value, target.selectionStart, target.selectionEnd);
-                setWeeklyGoalsDraft(nextValue);
-                requestAnimationFrame(() => { target.selectionStart = target.selectionEnd = (target.selectionStart || 0) + 1; });
-              }
-            }}
-          />
         </section>
       </div>
     );
