@@ -1001,7 +1001,15 @@ export default function DisciplinaTotalApp() {
     (async () => {
       const persistedState = await loadState();
       if (cancelled) return;
+
+      // atualiza o estado assim que conseguir ler os dados salvos,
+      // para o loading já refletir idioma/tema do usuário
       setState(persistedState);
+
+      // mantém a animação visível por Xs para todos
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+
+      if (cancelled) return;
       setStorageReady(true);
     })();
 
@@ -1132,7 +1140,15 @@ const chartAxis = isLight ? 'rgba(15,23,42,0.48)' : 'rgba(255,255,255,0.45)';
 const mutedBarColor = isLight ? '#cbd5e1' : 'rgba(255,255,255,0.22)';
 
   if (!storageReady) {
-    return <LoadingScreen locale={locale} backgroundValue={backgroundValue} overlay={state.appearance.overlay} />;
+    return (
+      <LoadingScreen
+        locale={locale}
+        backgroundValue={backgroundValue}
+        overlay={state.appearance.overlay}
+        themeMode={state.appearance.themeMode}
+        durationMs={2000}
+      />
+    );
   }
 
 function updateState(updater) { setState((prev) => updater(prev)); }
@@ -2207,16 +2223,37 @@ function NumberField({ label, value, onCommit, min = 0, placeholder = '' }) {
     </Field>
   );
 }
-function LoadingScreen({ locale = 'PT-BR', backgroundValue, overlay = 0.34 }) {
+function LoadingScreen({ locale = 'PT-BR', backgroundValue, overlay = 0.34, themeMode = 'dark', durationMs = 2000 }) {
+  const isLightTheme = themeMode === 'light';
+
   return (
-    <div className="loading-screen" style={{ '--bg-image': backgroundValue, '--overlay': overlay }}>
+    <div
+      className={cls('loading-screen', isLightTheme ? 'loading-screen--light' : 'loading-screen--dark')}
+      style={{
+        '--bg-image': backgroundValue,
+        '--overlay': overlay,
+        '--loading-duration-ms': durationMs,
+      }}
+      role="status"
+      aria-live="polite"
+    >
       <div className="bg-base" />
       <div className="bg-overlay" />
       <div className="loading-screen-card glass">
-        <img src={`${import.meta.env.BASE_URL}logo-sidebar.png`} alt="Disciplina Total" className="loading-screen-logo" />
+        <img
+          src={`${import.meta.env.BASE_URL}mahoraga.png`}
+          alt="Disciplina Total"
+          className="loading-screen-logo"
+        />
         <div className="loading-screen-title">Disciplina Total</div>
-        <div className="loading-screen-subtitle">{locale === 'EN-US' ? 'Loading your saved state safely...' : 'Carregando seu estado salvo com segurança...'}</div>
-        <div className="loading-screen-progress"><div className="loading-screen-progress-bar" /></div>
+        <div className="loading-screen-subtitle">
+          {locale === 'EN-US'
+            ? 'Loading your panel...'
+            : 'Carregando seu painel...'}
+        </div>
+        <div className="loading-screen-progress">
+          <div className="loading-screen-progress-bar" />
+        </div>
       </div>
     </div>
   );
