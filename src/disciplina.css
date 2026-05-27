@@ -3753,3 +3753,66 @@ input[type='checkbox'] { width: 18px; height: 18px; accent-color: var(--primary)
     width: 100%;
   }
 }
+
+/* ── HABITS DATE BACKFILL ───────────────────────────────────────── */
+.habit-control-card {
+  overflow: visible;
+}
+
+.habit-date-panel {
+  margin-top: 14px;
+}
+
+.habit-date-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.habit-calendar .habit-day {
+  color: inherit;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  font-weight: 800;
+  font-size: 12px;
+  transition: transform 0.15s ease, border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+}
+
+.habit-calendar .habit-day:hover {
+  transform: translateY(-1px);
+  border-color: color-mix(in srgb, var(--primary) 58%, var(--line));
+}
+
+.habit-calendar .habit-day.active {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 5px color-mix(in srgb, var(--primary) 18%, transparent);
+}
+
+.habit-calendar .habit-day span {
+  opacity: 0.86;
+}
+
+.habit-calendar .habit-day.done span,
+.habit-calendar .habit-day.partial span,
+.habit-calendar .habit-day.active span {
+  opacity: 1;
+}
+
+@media (max-width: 760px) {
+  .habit-date-summary {
+    align-items: stretch;
+  }
+
+  .habit-date-summary .pill {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .habit-page-body {
+    grid-template-columns: 1fr;
+  }
+}

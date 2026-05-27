@@ -1243,6 +1243,7 @@ export default function DisciplinaTotalApp() {
   const [pomodoroUrlDraft, setPomodoroUrlDraft] = useState('');
   const [historyDate, setHistoryDate] = useState(todayISO());
   const [selectedDate, setSelectedDate] = useState(todayISO());
+  const [habitDate, setHabitDate] = useState(todayISO());
   const [routineView, setRoutineView] = useState('day');
   const [showDisciplineLabelEditor, setShowDisciplineLabelEditor] = useState(false);
   const [eventDraft, setEventDraft] = useState({ title: '', description: '', date: todayISO() });
@@ -1386,6 +1387,7 @@ export default function DisciplinaTotalApp() {
   const upcomingDates = getUpcomingRoutineDates();
   const routineWindowDates = getRoutineWindowDates(selectedDate, 7);
   const routineQuickDates = getCenteredDateWindow(selectedDate, 7);
+  const habitQuickDates = getCenteredDateWindow(habitDate, 7);
   const weekSeries = weekDates.map((d) => ({ label: formatShort(d, locale), raw: d, disciplina: disciplineForDate(state, d) }));
   const monthSeries = getDateRange(30).map((d) => ({ label: formatShort(d, locale), raw: d, disciplina: disciplineForDate(state, d) }));
 
@@ -1547,14 +1549,17 @@ function updateState(updater) { setState((prev) => updater(prev)); }
     }));
   }
 
-  function incrementHabit(habitId, deltaValue) {
+  function incrementHabit(habitId, deltaValue, targetDate = todayISO()) {
+    const logDate = normalizeISODateInput(targetDate || todayISO(), todayISO());
     updateState((prev) => ({
       ...prev,
       habits: prev.habits.map((h) => {
         if (h.id !== habitId) return h;
-        const current = h.logs[todayISO()] || 0;
-        const next = Math.max(0, Math.min(h.target || 1, current + deltaValue));
-        return { ...h, logs: { ...h.logs, [todayISO()]: next } };
+        const logs = h.logs || {};
+        const target = Math.max(1, Number(h.target || 1));
+        const current = Number(logs[logDate] || 0);
+        const next = Math.max(0, Math.min(target, current + deltaValue));
+        return { ...h, logs: { ...logs, [logDate]: next } };
       }),
     }));
   }
@@ -2462,14 +2467,51 @@ if (page === 'dashboard') {
     }
 
     if (page === 'habits') {
+      const selectedHabitDone = state.habits.filter((habit) => Number(habit.logs?.[habitDate] || 0) >= Math.max(1, Number(habit.target || 1))).length;
+      const selectedHabitDiscipline = disciplineForDate(state, habitDate);
+
       return (
         <div className="stack large-gap">
+          <section className="glass section-card habit-control-card">
+            <SectionHeader
+              title={locale === 'EN-US' ? 'Habits by date' : 'Hábitos por data'}
+              subtitle={locale === 'EN-US' ? 'Go back to any day and record what you completed.' : 'Volte em qualquer dia e registre o que foi concluído.'}
+              action={
+                <button className="primary-btn routine-add-task-btn" onClick={openNewHabit}>
+                  <Plus size={16} /> {copy.newHabit}
+                </button>
+              }
+            />
+            <div className="date-panel habit-date-panel">
+              <DateSelector
+                value={habitDate}
+                locale={locale}
+                discipline={selectedHabitDiscipline}
+                onChange={(date) => setHabitDate(date)}
+              />
+              <DateStrip
+                dates={habitQuickDates}
+                value={habitDate}
+                locale={locale}
+                onChange={(date) => setHabitDate(date)}
+                getMetric={(date) => {
+                  const done = state.habits.filter((habit) => Number(habit.logs?.[date] || 0) >= Math.max(1, Number(habit.target || 1))).length;
+                  return `${done}/${state.habits.length || 0}`;
+                }}
+              />
+            </div>
+            <div className="habit-date-summary">
+              <span className="pill info">{formatFullDate(habitDate, locale)}</span>
+              <span className="pill">{selectedHabitDone}/{state.habits.length} {locale === 'EN-US' ? 'habits completed' : 'hábitos concluídos'}</span>
+            </div>
+          </section>
+
           <div className="habit-grid-page">
             {state.habits.map((habit, index) => {
-              const today = habit.logs[todayISO()] || 0;
-              const pct = Math.min(100, Math.round((today / habit.target) * 100));
+              const selectedValue = Number(habit.logs?.[habitDate] || 0);
+              const target = Math.max(1, Number(habit.target || 1));
+              const pct = Math.min(100, Math.round((selectedValue / target) * 100));
               const streakCount = calcHabitStreak(habit);
-              const habitColor = state.appearance.primary;
               return (
                 <section
                   key={habit.id}
@@ -2481,7 +2523,10 @@ if (page === 'dashboard') {
                   <div className="habit-head-row">
                     <div className="habit-head-left">
                       <div className="habit-icon" style={{ background: `${habit.color}22`, color: habit.color }}>{habitIcons[habit.icon] || <Target size={16} />}</div>
-                      <div><div className="section-title">{habit.title}</div><div className="section-subtitle">{categoryLabel(habit.category, locale)} • {copy.goalPerDay(habit.target)}</div></div>
+                      <div>
+                        <div className="section-title">{habit.title}</div>
+                        <div className="section-subtitle">{categoryLabel(habit.category, locale)} • {copy.goalPerDay(target)} • {formatShort(habitDate, locale)}</div>
+                      </div>
                     </div>
                     <div className="habit-head-actions">
                       <span className="pill habit-streak-pill" style={{ background: alphaColor(habit.color, '18'), color: habit.color, borderColor: alphaColor(habit.color, '3D') }}>{copy.streak} {streakCount}</span>
@@ -2494,19 +2539,20 @@ if (page === 'dashboard') {
                   </div>
                   <div className="habit-page-body">
                     <div className="habit-side-card">
-                      <div className="eyebrow">{copy.today}</div>
-                      <div className="big-number">{today}/{habit.target}</div>
+                      <div className="eyebrow">{locale === 'EN-US' ? 'Selected day' : 'Dia selecionado'}</div>
+                      <div className="big-number">{selectedValue}/{target}</div>
                       <div className="progress-track slim"><div className="progress-fill habit-progress-fill" style={{ width: `${pct}%`, background: `linear-gradient(135deg, ${habit.color}, ${alphaColor(habit.color, 'CC')})` }} /></div>
                       <div className="habit-stepper spread">
-                        <button className="icon-btn" onClick={() => incrementHabit(habit.id, -1)}><ChevronDown size={16} /></button>
-                        <button className="icon-btn" onClick={() => incrementHabit(habit.id, 1)}><ChevronUp size={16} /></button>
+                        <button className="icon-btn" onClick={() => incrementHabit(habit.id, -1, habitDate)}><ChevronDown size={16} /></button>
+                        <button className="icon-btn" onClick={() => incrementHabit(habit.id, 1, habitDate)}><ChevronUp size={16} /></button>
                       </div>
                     </div>
                     <div className="habit-calendar">
-                      {getDateRange(14).map((d) => {
-                        const value = habit.logs[d] || 0;
-                        const done = value >= habit.target;
-                        return <div key={d} className={cls('habit-day', done ? 'done' : value > 0 ? 'partial' : '')} style={done ? { background: alphaColor(habit.color, '70'), borderColor: alphaColor(habit.color, 'C8') } : value > 0 ? { background: alphaColor(habit.color, '16'), borderColor: alphaColor(habit.color, '33') } : undefined} title={`${d}: ${value}/${habit.target}`} />;
+                      {getCenteredDateWindow(habitDate, 14).map((d) => {
+                        const value = Number(habit.logs?.[d] || 0);
+                        const done = value >= target;
+                        const active = d === habitDate;
+                        return <button key={d} type="button" className={cls('habit-day', done ? 'done' : value > 0 ? 'partial' : '', active && 'active')} style={done ? { background: alphaColor(habit.color, '70'), borderColor: alphaColor(habit.color, 'C8') } : value > 0 ? { background: alphaColor(habit.color, '16'), borderColor: alphaColor(habit.color, '33') } : undefined} title={`${d}: ${value}/${target}`} onClick={() => setHabitDate(d)}><span>{pad2(parseISODateLocal(d).getDate())}</span></button>;
                       })}
                     </div>
                   </div>
