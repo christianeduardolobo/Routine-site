@@ -4,7 +4,7 @@ import {
   LayoutDashboard, ListTodo, Target, CalendarDays, BarChart3, Settings,
   Plus, CheckCircle2, Circle, Search, Flame, Sparkles, Trophy, Brain,
   Download, Upload, Trash2, Pencil, ChevronUp, ChevronDown,
-  TrendingUp, TrendingDown, Clock3, Focus, Dumbbell,
+  TrendingUp, TrendingDown, Clock3, Focus, Dumbbell, MoreHorizontal,
   BookOpen, Briefcase, HeartPulse, BedDouble, Droplets, GripVertical,
 } from 'lucide-react';
 import {
@@ -59,6 +59,213 @@ const offsetDate = (date, amount) => {
   return toLocalISODate(d);
 };
 const percentage = (n) => Math.max(0, Math.min(100, Math.round(n)));
+
+const DEFAULT_PROFILE_CROP = { zoom: 1, x: 0, y: 0 };
+
+function clampNumber(value, min, max, fallback = 0) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.max(min, Math.min(max, n));
+}
+
+function normalizeProfileCrop(crop = {}) {
+  return {
+    zoom: clampNumber(crop?.zoom, 1, 12, 1),
+    x: clampNumber(crop?.x, -120, 120, 0),
+    y: clampNumber(crop?.y, -120, 120, 0),
+  };
+}
+
+function profileCropCss(crop = {}) {
+  const normalized = normalizeProfileCrop(crop);
+  return {
+    '--profile-crop-x': `${normalized.x}%`,
+    '--profile-crop-y': `${normalized.y}%`,
+    '--profile-crop-zoom': normalized.zoom,
+  };
+}
+
+function loadImageElement(src) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.decoding = 'async';
+    img.crossOrigin = 'anonymous';
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error('Failed to load profile image'));
+    img.src = src;
+  });
+}
+
+async function createProfileCropDataUrl(src, crop = DEFAULT_PROFILE_CROP, outputSize = 720) {
+  const normalized = normalizeProfileCrop(crop);
+  const img = await loadImageElement(src);
+  const canvas = document.createElement('canvas');
+  canvas.width = outputSize;
+  canvas.height = outputSize;
+
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('Canvas not supported');
+
+  ctx.clearRect(0, 0, outputSize, outputSize);
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+
+  const coverScale = Math.max(outputSize / img.naturalWidth, outputSize / img.naturalHeight);
+  const scale = coverScale * normalized.zoom;
+  const drawWidth = img.naturalWidth * scale;
+  const drawHeight = img.naturalHeight * scale;
+  const drawX = ((outputSize - drawWidth) / 2) + ((normalized.x / 100) * outputSize);
+  const drawY = ((outputSize - drawHeight) / 2) + ((normalized.y / 100) * outputSize);
+
+  ctx.drawImage(img, drawX, drawY, drawWidth, drawHeight);
+  return canvas.toDataURL('image/png');
+}
+
+const LEGACY_DISCIPLINE_LABELS = {
+  danger: 'PIECE OF SHIT',
+  warn: 'STAY FUCKING HARD',
+  info: 'STAY HARD',
+  success: 'LOCKED IN',
+};
+
+const DEFAULT_DISCIPLINE_LABELS_BY_LOCALE = {
+  'PT-BR': {
+    danger: 'EM CONSTRUÇÃO',
+    warn: 'EM PROGRESSO',
+    info: 'CONSISTENTE',
+    success: 'ALTA PERFORMANCE',
+  },
+  'EN-US': {
+    danger: 'BUILDING UP',
+    warn: 'IN PROGRESS',
+    info: 'CONSISTENT',
+    success: 'HIGH PERFORMANCE',
+  },
+};
+
+const DEFAULT_DISCIPLINE_LABELS = DEFAULT_DISCIPLINE_LABELS_BY_LOCALE['PT-BR'];
+
+const LEGACY_DASHBOARD_QUOTE = {
+  text: 'Quem vive só para o instante foge de si mesmo.',
+  author: 'Friedrich Nietzsche',
+};
+
+const DEFAULT_DASHBOARD_QUOTES_BY_LOCALE = {
+  'PT-BR': {
+    text: 'Disciplina é transformar intenção em prática, um dia de cada vez.',
+    author: 'Disciplina Total',
+  },
+  'EN-US': {
+    text: 'Discipline turns intention into action, one day at a time.',
+    author: 'Disciplina Total',
+  },
+};
+
+const DEFAULT_DASHBOARD_QUOTE = DEFAULT_DASHBOARD_QUOTES_BY_LOCALE['PT-BR'];
+
+function getDefaultDisciplineLabels(locale = 'PT-BR') {
+  return DEFAULT_DISCIPLINE_LABELS_BY_LOCALE[locale] || DEFAULT_DISCIPLINE_LABELS_BY_LOCALE['PT-BR'];
+}
+
+function isSameLabelSet(labels = {}, reference = {}) {
+  return ['danger', 'warn', 'info', 'success'].every((tone) => String(labels?.[tone] || '') === String(reference?.[tone] || ''));
+}
+
+function isDefaultLabelSet(labels = {}) {
+  return Object.values(DEFAULT_DISCIPLINE_LABELS_BY_LOCALE).some((reference) => isSameLabelSet(labels, reference));
+}
+
+function isLegacyDisciplineLabelSet(labels = {}) {
+  return isSameLabelSet(labels, LEGACY_DISCIPLINE_LABELS);
+}
+
+function normalizeDisciplineLabels(labels = {}, locale = 'PT-BR') {
+  const defaults = getDefaultDisciplineLabels(locale);
+  if (!labels || typeof labels !== 'object' || isLegacyDisciplineLabelSet(labels)) return { ...defaults };
+  return {
+    danger: labels.danger ?? defaults.danger,
+    warn: labels.warn ?? defaults.warn,
+    info: labels.info ?? defaults.info,
+    success: labels.success ?? defaults.success,
+  };
+}
+
+function getDisciplineLabelsForDisplay(settings = {}, locale = 'PT-BR') {
+  if (!settings.disciplineLabelsCustomized) return { ...getDefaultDisciplineLabels(locale) };
+  return normalizeDisciplineLabels(settings.disciplineLabels, locale);
+}
+
+function getDefaultDashboardQuote(locale = 'PT-BR') {
+  return DEFAULT_DASHBOARD_QUOTES_BY_LOCALE[locale] || DEFAULT_DASHBOARD_QUOTES_BY_LOCALE['PT-BR'];
+}
+
+function normalizeDashboardQuotes(settings = {}) {
+  const source = settings.dashboardQuotes && typeof settings.dashboardQuotes === 'object' ? settings.dashboardQuotes : {};
+  const legacyText = settings.dashboardQuoteText;
+  const legacyAuthor = settings.dashboardQuoteAuthor;
+  const hasLegacyCustomQuote = typeof legacyText === 'string'
+    && legacyText !== LEGACY_DASHBOARD_QUOTE.text
+    && legacyText !== DEFAULT_DASHBOARD_QUOTES_BY_LOCALE['PT-BR'].text
+    && legacyText !== DEFAULT_DASHBOARD_QUOTES_BY_LOCALE['EN-US'].text;
+
+  return {
+    'PT-BR': {
+      text: source['PT-BR']?.text ?? (hasLegacyCustomQuote ? legacyText : DEFAULT_DASHBOARD_QUOTES_BY_LOCALE['PT-BR'].text),
+      author: source['PT-BR']?.author ?? (hasLegacyCustomQuote ? (legacyAuthor || '') : DEFAULT_DASHBOARD_QUOTES_BY_LOCALE['PT-BR'].author),
+    },
+    'EN-US': {
+      text: source['EN-US']?.text ?? (hasLegacyCustomQuote ? legacyText : DEFAULT_DASHBOARD_QUOTES_BY_LOCALE['EN-US'].text),
+      author: source['EN-US']?.author ?? (hasLegacyCustomQuote ? (legacyAuthor || '') : DEFAULT_DASHBOARD_QUOTES_BY_LOCALE['EN-US'].author),
+    },
+  };
+}
+
+function getDashboardQuote(settings = {}, locale = 'PT-BR') {
+  const quotes = normalizeDashboardQuotes(settings);
+  return quotes[locale] || quotes['PT-BR'];
+}
+
+function normalizeISODateInput(value, fallback = todayISO()) {
+  if (!value) return fallback;
+
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return toLocalISODate(value);
+  }
+
+  const raw = String(value || '').trim();
+  const isoMatch = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (isoMatch) return `${isoMatch[1]}-${isoMatch[2]}-${isoMatch[3]}`;
+
+  const brMatch = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (brMatch) {
+    return `${brMatch[3]}-${pad2(Number(brMatch[2]))}-${pad2(Number(brMatch[1]))}`;
+  }
+
+  const parsed = new Date(raw);
+  if (!Number.isNaN(parsed.getTime())) return toLocalISODate(parsed);
+
+  return fallback;
+}
+
+function normalizeEventRecord(event) {
+  if (!event || typeof event !== 'object') return null;
+  return {
+    id: event.id || uid(),
+    title: String(event.title || '').trim(),
+    description: event.description || '',
+    date: normalizeISODateInput(event.date),
+    status: event.status === 'done' ? 'done' : 'pending',
+  };
+}
+
+function getEventsForDate(state, date) {
+  return (state.events || [])
+    .map(normalizeEventRecord)
+    .filter(Boolean)
+    .filter((event) => event.title && event.date === date)
+    .sort((a, b) => a.title.localeCompare(b.title, 'pt-BR'));
+}
+
 
 function normalizeTaskTimeInput(value = '') {
   const raw = String(value || '').trim().toLowerCase();
@@ -122,6 +329,7 @@ function sampleState() {
     { id: uid(), title: 'Leitura', category: 'estudo', icon: 'leitura', color: '#60a5fa', target: 1, logs: { [date]: 1, [previous[5]]: 1, [previous[4]]: 1, [previous[3]]: 0, [previous[2]]: 1, [previous[1]]: 1, [previous[0]]: 1 } },
     { id: uid(), title: 'Oração / espiritualidade', category: 'espiritualidade', icon: 'espiritualidade', color: '#c084fc', target: 1, logs: { [date]: 1, [previous[5]]: 1, [previous[4]]: 1, [previous[3]]: 1, [previous[2]]: 1, [previous[1]]: 1, [previous[0]]: 1 } },
   ];
+  const events = [];
   const history = previous.map((d, idx) => ({
     date: d,
     discipline: [88, 76, 91, 72, 81, 97][idx],
@@ -129,7 +337,7 @@ function sampleState() {
     tasksTotal: 6,
   }));
   return {
-    tasks, habits, history,
+    tasks, habits, events, history,
     reflections: { [date]: { note: '', whatWentWell: '', pending: '', improveTomorrow: '' } },
     settings: {
       userName: 'Christian', locale: 'PT-BR', dailyGoal: 80, weeklyGoal: 85,
@@ -138,11 +346,17 @@ function sampleState() {
       categories: ['saúde', 'espiritualidade', 'estudo', 'trabalho', 'pessoal', 'financeiro'],
       pomodoroFocusMin: 25, pomodoroShortBreakMin: 5, pomodoroLongBreakMin: 15,
       pomodoroCyclesBeforeLongBreak: 4, pomodoroSelectedSoundKey: 'white', pomodoroSavedSounds: [],
+      devMode: false,
+      disciplineLabelsCustomized: false,
+      disciplineLabels: { ...DEFAULT_DISCIPLINE_LABELS },
+      dashboardQuotes: normalizeDashboardQuotes(),
+      dashboardQuoteText: DEFAULT_DASHBOARD_QUOTE.text,
+      dashboardQuoteAuthor: DEFAULT_DASHBOARD_QUOTE.author,
     },
     appearance: {
       primary: '#60a5fa', accent: '#c084fc', themeMode: 'dark',
       backgroundImage: '', backgroundUrl: '', backgroundSize: 'cover',
-      backgroundPosition: 'center', radius: 24, blur: 20, overlay: 0.34,
+      backgroundPosition: 'center', profileImage: '', profileOriginalImage: '', profileUrl: '', profileCrop: { ...DEFAULT_PROFILE_CROP }, profileImageCropped: false, radius: 24, blur: 20, overlay: 0.34,
     },
   };
 }
@@ -154,6 +368,7 @@ function emptyState() {
     ...base,
     tasks: [],
     habits: [],
+    events: [],
     history: [],
     reflections: {},
     settings: {
@@ -169,6 +384,11 @@ function emptyState() {
       ...base.appearance,
       backgroundImage: '',
       backgroundUrl: '',
+      profileImage: '',
+      profileOriginalImage: '',
+      profileUrl: '',
+      profileCrop: { ...DEFAULT_PROFILE_CROP },
+      profileImageCropped: false,
     },
   };
 }
@@ -203,14 +423,37 @@ function migratePomodoroSettings(settings = {}) {
 }
 
 function buildPersistedState(base, parsed) {
+  const migratedSettings = migratePomodoroSettings({ ...base.settings, ...(parsed.settings || {}) });
+  const incomingLabels = migratedSettings.disciplineLabels;
+  const labelsWereLegacy = isLegacyDisciplineLabelSet(incomingLabels);
+  const inferredCustomLabels = !!incomingLabels
+    && typeof incomingLabels === 'object'
+    && !labelsWereLegacy
+    && !isDefaultLabelSet(incomingLabels);
+  const disciplineLabelsCustomized = migratedSettings.disciplineLabelsCustomized ?? inferredCustomLabels;
+  const dashboardQuotes = normalizeDashboardQuotes(migratedSettings);
+  const settings = {
+    ...migratedSettings,
+    devMode: !!migratedSettings.devMode,
+    disciplineLabelsCustomized: !!disciplineLabelsCustomized && !labelsWereLegacy,
+    disciplineLabels: labelsWereLegacy ? { ...DEFAULT_DISCIPLINE_LABELS } : normalizeDisciplineLabels(incomingLabels),
+    dashboardQuotes,
+    dashboardQuoteText: dashboardQuotes['PT-BR'].text,
+    dashboardQuoteAuthor: dashboardQuotes['PT-BR'].author,
+  };
+
+  const appearance = { ...base.appearance, ...(parsed.appearance || {}) };
+  appearance.profileCrop = normalizeProfileCrop(appearance.profileCrop);
+
   return {
     ...base,
     ...parsed,
-    settings: migratePomodoroSettings({ ...base.settings, ...(parsed.settings || {}) }),
+    settings,
     reflections: { ...base.reflections, ...(parsed.reflections || {}) },
-    appearance: { ...base.appearance, ...(parsed.appearance || {}) },
-    tasks: Array.isArray(parsed.tasks) ? parsed.tasks : base.tasks,
+    appearance,
+    tasks: Array.isArray(parsed.tasks) ? parsed.tasks.map(normalizeTaskRecord) : base.tasks,
     habits: Array.isArray(parsed.habits) ? parsed.habits : base.habits,
+    events: Array.isArray(parsed.events) ? parsed.events.map(normalizeEventRecord).filter(Boolean) : base.events,
     history: Array.isArray(parsed.history) ? parsed.history : base.history,
   };
 }
@@ -325,7 +568,11 @@ async function saveState(state) {
 
 const UI_COPY = {
   'PT-BR': {
-    brandSubtitle: 'Controle, progresso e consistência',
+    brandSubtitle: 'Painel pessoal de disciplina',
+    creatorCredit: 'Site criado por Christian Lobo',
+    creatorCreditLabel: 'Site criado por',
+    creatorName: 'Christian Lobo',
+    personalPanel: 'Painel pessoal de disciplina',
     dailyGoal: 'Meta diária',
     personalRecord: 'Recorde pessoal',
     weeklyFocus: 'Foco da semana',
@@ -342,8 +589,8 @@ const UI_COPY = {
     allTasks: 'Todas as tarefas',
     moveUp: 'Subir hábito',
     moveDown: 'Descer hábito',
-    nav: { dashboard: 'Dashboard', routine: 'Rotina do Dia', habits: 'Hábitos', history: 'Histórico', stats: 'Estatísticas', pomodoro: 'Pomodoro', settings: 'Configurações' },
-    mobileNav: { dashboard: 'Início', routine: 'Rotina', habits: 'Hábitos', stats: 'Estat.', pomodoro: 'Pomodoro', settings: 'Ajustes' },
+    nav: { dashboard: 'Dashboard', routine: 'Rotina do Dia', events: 'Eventos', habits: 'Hábitos', history: 'Histórico', stats: 'Estatísticas', pomodoro: 'Pomodoro', settings: 'Configurações' },
+    mobileNav: { dashboard: 'Início', routine: 'Rotina', events: 'Eventos', habits: 'Hábitos', stats: 'Estat.', pomodoro: 'Pomodoro', settings: 'Ajustes', more: 'Mais' },
     streak: 'sequência',
     today: 'Hoje',
     goalPerDay: (count) => `meta ${count}/dia`,
@@ -351,6 +598,22 @@ const UI_COPY = {
     profileAndGoals: 'Perfil, idioma e metas',
     profileAndGoalsSub: 'Ajustes principais do seu painel.',
     yourName: 'Seu nome',
+    profilePhoto: 'Foto de perfil',
+    profilePhotoSub: 'Essa imagem aparece na lateral do app, junto com o nome da pessoa.',
+    editProfilePhoto: 'Ajustar foto',
+    profileCropTitle: 'Ajustar foto de perfil',
+    profileCropSub: 'Arraste a foto ou use os controles até o rosto ficar centralizado no círculo.',
+    profileCropZoom: 'Zoom',
+    profileCropZoomOut: 'Diminuir zoom',
+    profileCropZoomIn: 'Aumentar zoom',
+    profileCropHorizontal: 'Horizontal',
+    profileCropVertical: 'Vertical',
+    resetCrop: 'Centralizar',
+    saveCrop: 'Salvar ajuste',
+    uploadProfilePhoto: 'Carregar foto',
+    removeProfilePhoto: 'Remover foto',
+    profileImageUrlPlaceholder: 'Cole a URL da foto de perfil',
+    applyProfileUrl: 'Aplicar foto',
     dailyGoalPercent: 'Meta diária %',
     weeklyGoalPercent: 'Meta semanal %',
     themeBackground: 'Tema e background',
@@ -391,7 +654,7 @@ const UI_COPY = {
     priority: 'Prioridade',
     time: 'Horário',
     discipline: 'Disciplina',
-    disciplineHelp: 'Hábitos usam progresso atual/meta e tarefas com subtarefas contam proporcionalmente no cálculo do dia.',
+    disciplineHelp: 'Hábitos usam progresso atual/meta, tarefas com subtarefas contam proporcionalmente e cada evento conta como 1 item no cálculo do dia.',
     description: 'Descrição',
     subtasks: 'Subtarefas',
     low: 'Baixa',
@@ -402,7 +665,11 @@ const UI_COPY = {
     taskPending: 'pendente',
   },
   'EN-US': {
-    brandSubtitle: 'Control, progress and consistency',
+    brandSubtitle: 'Personal discipline panel',
+    creatorCredit: 'Site created by Christian Lobo',
+    creatorCreditLabel: 'Site created by',
+    creatorName: 'Christian Lobo',
+    personalPanel: 'Personal discipline panel',
     dailyGoal: 'Daily goal',
     personalRecord: 'Personal record',
     weeklyFocus: 'Week focus',
@@ -419,8 +686,8 @@ const UI_COPY = {
     allTasks: 'All tasks',
     moveUp: 'Move habit up',
     moveDown: 'Move habit down',
-    nav: { dashboard: 'Dashboard', routine: 'Daily routine', habits: 'Habits', history: 'History', stats: 'Statistics', pomodoro: 'Pomodoro', settings: 'Settings' },
-    mobileNav: { dashboard: 'Home', routine: 'Routine', habits: 'Habits', stats: 'Stats', pomodoro: 'Pomodoro', settings: 'Settings' },
+    nav: { dashboard: 'Dashboard', routine: 'Daily routine', events: 'Events', habits: 'Habits', history: 'History', stats: 'Statistics', pomodoro: 'Pomodoro', settings: 'Settings' },
+    mobileNav: { dashboard: 'Home', routine: 'Routine', events: 'Events', habits: 'Habits', stats: 'Stats', pomodoro: 'Pomodoro', settings: 'Settings', more: 'More' },
     streak: 'streak',
     today: 'Today',
     goalPerDay: (count) => `goal ${count}/day`,
@@ -428,6 +695,22 @@ const UI_COPY = {
     profileAndGoals: 'Profile, language and goals',
     profileAndGoalsSub: 'Main settings for your panel.',
     yourName: 'Your name',
+    profilePhoto: 'Profile photo',
+    profilePhotoSub: 'This image appears in the sidebar with the person’s name.',
+    editProfilePhoto: 'Adjust photo',
+    profileCropTitle: 'Adjust profile photo',
+    profileCropSub: 'Drag the photo or use the controls until the face is centered inside the circle.',
+    profileCropZoom: 'Zoom',
+    profileCropZoomOut: 'Zoom out',
+    profileCropZoomIn: 'Zoom in',
+    profileCropHorizontal: 'Horizontal',
+    profileCropVertical: 'Vertical',
+    resetCrop: 'Center',
+    saveCrop: 'Save adjustment',
+    uploadProfilePhoto: 'Upload photo',
+    removeProfilePhoto: 'Remove photo',
+    profileImageUrlPlaceholder: 'Paste the profile photo URL',
+    applyProfileUrl: 'Apply photo',
     dailyGoalPercent: 'Daily goal %',
     weeklyGoalPercent: 'Weekly goal %',
     themeBackground: 'Theme and background',
@@ -466,7 +749,7 @@ const UI_COPY = {
     priority: 'Priority',
     time: 'Time',
     discipline: 'Discipline',
-    disciplineHelp: 'Habits use current/target progress and tasks with subtasks count proportionally in the daily score.',
+    disciplineHelp: 'Habits use current/target progress, tasks with subtasks count proportionally, and each event counts as 1 item in the daily score.',
     description: 'Description',
     subtasks: 'Subtasks',
     low: 'Low',
@@ -506,16 +789,18 @@ function alphaColor(hex, alpha = '22') {
   return hex;
 }
 
-function getDisciplineLabel(value) {
-  if (value <= 39) return { text: 'PIECE OF SHIT', tone: 'danger' };
-  if (value <= 69) return { text: 'DONT FUCKING QUIT', tone: 'warn' };
-  if (value <= 89) return { text: 'STAY HARD', tone: 'info' };
-  return { text: 'LOCKED IN', tone: 'success' };
+function getDisciplineLabel(value, labels = DEFAULT_DISCIPLINE_LABELS) {
+  const normalizedLabels = normalizeDisciplineLabels(labels);
+  if (value <= 39) return { text: normalizedLabels.danger, tone: 'danger' };
+  if (value <= 69) return { text: normalizedLabels.warn, tone: 'warn' };
+  if (value <= 89) return { text: normalizedLabels.info, tone: 'info' };
+  return { text: normalizedLabels.success, tone: 'success' };
 }
 
 function disciplineForDate(state, date) {
   const tasks = getTasksForDate(state, date);
   const habits = state.habits || [];
+  const events = getEventsForDate(state, date);
 
   const getHabitProgress = (habit) => {
     const target = Math.max(1, Number(habit?.target || 1));
@@ -534,17 +819,16 @@ function disciplineForDate(state, date) {
     return task?.status === 'done' ? 1 : 0;
   };
 
-  const taskPercent = tasks.length
-    ? (tasks.reduce((sum, task) => sum + getTaskProgress(task), 0) / tasks.length) * 100
-    : 0;
+  const getEventProgress = (event) => (event?.status === 'done' ? 1 : 0);
 
-  const habitPercent = habits.length
-    ? (habits.reduce((sum, habit) => sum + getHabitProgress(habit), 0) / habits.length) * 100
-    : 0;
+  const dailyItems = [
+    ...tasks.map(getTaskProgress),
+    ...habits.map(getHabitProgress),
+    ...events.map(getEventProgress),
+  ];
 
-  if (!tasks.length && !habits.length) return 0;
-  if (tasks.length && habits.length) return percentage((taskPercent + habitPercent) / 2);
-  return percentage(taskPercent || habitPercent);
+  if (!dailyItems.length) return 0;
+  return percentage((dailyItems.reduce((sum, value) => sum + value, 0) / dailyItems.length) * 100);
 }
 
 function buildFullHistory(state) {
@@ -566,8 +850,13 @@ function getDateRange(lastDays) {
 }
 const getUpcomingRoutineDates = () =>
   Array.from({ length: 6 }, (_, idx) => offsetDate(todayISO(), idx + 1));
-const getRoutineWindowDates = (length = 7) =>
-  Array.from({ length }, (_, idx) => offsetDate(todayISO(), idx));
+const getRoutineWindowDates = (startDate = todayISO(), length = 7) =>
+  Array.from({ length }, (_, idx) => offsetDate(startDate, idx));
+const getCenteredDateWindow = (anchorDate = todayISO(), length = 7) => {
+  const safeLength = Math.max(1, Number(length || 7));
+  const startOffset = -Math.floor(safeLength / 2);
+  return Array.from({ length: safeLength }, (_, idx) => offsetDate(anchorDate || todayISO(), startOffset + idx));
+};
 
 const WEEKDAY_ORDER = [0, 1, 2, 3, 4, 5, 6];
 const WEEKDAY_LABELS = {
@@ -600,6 +889,7 @@ function normalizeTaskRecord(task) {
     time: normalizeTaskTimeInput(task.time || ''),
     repeatDays: normalizeRepeatDays(task.repeatDays),
     occurrenceStatus: task.occurrenceStatus && typeof task.occurrenceStatus === 'object' ? task.occurrenceStatus : {},
+    occurrenceSubtasks: task.occurrenceSubtasks && typeof task.occurrenceSubtasks === 'object' ? task.occurrenceSubtasks : {},
     subtasks: Array.isArray(task.subtasks) ? task.subtasks : [],
   };
 }
@@ -608,16 +898,35 @@ function taskMatchesDate(task, date) {
   const normalizedTask = normalizeTaskRecord(task);
   if (!normalizedTask) return false;
   if (isRecurringTask(normalizedTask)) {
-    return normalizedTask.date <= date && normalizedTask.repeatDays.includes(getWeekdayFromISODate(date));
+    const startsInFuture = normalizedTask.date > todayISO();
+    const canShowOnDate = !startsInFuture || normalizedTask.date <= date;
+    return canShowOnDate && normalizedTask.repeatDays.includes(getWeekdayFromISODate(date));
   }
   return normalizedTask.date === date;
+}
+
+function getTaskSubtasksForDate(task, date) {
+  const normalizedTask = normalizeTaskRecord(task);
+  const subtasks = Array.isArray(normalizedTask?.subtasks) ? normalizedTask.subtasks : [];
+
+  if (!isRecurringTask(normalizedTask)) return subtasks;
+
+  const dateSubtaskStatus = normalizedTask.occurrenceSubtasks?.[date] || {};
+  return subtasks.map((subtask) => ({
+    ...subtask,
+    done: !!dateSubtaskStatus[subtask.id],
+  }));
 }
 
 function getTaskStatusForDate(task, date) {
   const normalizedTask = normalizeTaskRecord(task);
   if (!normalizedTask) return 'pending';
   if (isRecurringTask(normalizedTask)) {
-    return normalizedTask.occurrenceStatus?.[date] || normalizedTask.status || 'pending';
+    const occurrenceStatus = normalizedTask.occurrenceStatus?.[date];
+    if (occurrenceStatus) return occurrenceStatus;
+    const subtasks = getTaskSubtasksForDate(normalizedTask, date);
+    if (subtasks.length && subtasks.every((s) => s.done)) return 'done';
+    return 'pending';
   }
   return normalizedTask.status || 'pending';
 }
@@ -625,11 +934,20 @@ function getTaskStatusForDate(task, date) {
 function setTaskStatusForDate(task, date, status) {
   const normalizedTask = normalizeTaskRecord(task);
   if (isRecurringTask(normalizedTask)) {
+    const nextSubtasksForDate = (normalizedTask.subtasks || []).reduce((acc, subtask) => {
+      acc[subtask.id] = status === 'done';
+      return acc;
+    }, {});
+
     return {
       ...normalizedTask,
       occurrenceStatus: {
         ...(normalizedTask.occurrenceStatus || {}),
         [date]: status,
+      },
+      occurrenceSubtasks: {
+        ...(normalizedTask.occurrenceSubtasks || {}),
+        [date]: nextSubtasksForDate,
       },
     };
   }
@@ -638,9 +956,11 @@ function setTaskStatusForDate(task, date, status) {
 
 function materializeTaskForDate(task, date) {
   const normalizedTask = normalizeTaskRecord(task);
+  const subtasks = getTaskSubtasksForDate(normalizedTask, date);
   return {
     ...normalizedTask,
     effectiveDate: date,
+    subtasks,
     status: getTaskStatusForDate(normalizedTask, date),
     isRecurringOccurrence: isRecurringTask(normalizedTask),
   };
@@ -905,11 +1225,14 @@ export default function DisciplinaTotalApp() {
   const [state, setState] = useState(sampleState());
   const [storageReady, setStorageReady] = useState(false);
   const [page, setPage] = useState('dashboard');
+  const [mobileMoreOpen, setMobileMoreOpen] = useState(false);
   const [search, setSearch] = useState('');
   const [showTaskModal, setShowTaskModal] = useState(false);
   const [editingTask, setEditingTask] = useState(null);
   const [showHabitModal, setShowHabitModal] = useState(false);
   const [showResetModal, setShowResetModal] = useState(false);
+  const [showProfileCropModal, setShowProfileCropModal] = useState(false);
+  const [profileCropDraft, setProfileCropDraft] = useState(DEFAULT_PROFILE_CROP);
   const [editingHabit, setEditingHabit] = useState(null);
   const [pomodoro, setPomodoro] = useState(25 * 60);
   const [pomodoroRunning, setPomodoroRunning] = useState(false);
@@ -919,11 +1242,16 @@ export default function DisciplinaTotalApp() {
   const [pomodoroLinkNameDraft, setPomodoroLinkNameDraft] = useState('');
   const [pomodoroUrlDraft, setPomodoroUrlDraft] = useState('');
   const [historyDate, setHistoryDate] = useState(todayISO());
+  const [selectedDate, setSelectedDate] = useState(todayISO());
   const [routineView, setRoutineView] = useState('day');
+  const [showDisciplineLabelEditor, setShowDisciplineLabelEditor] = useState(false);
+  const [eventDraft, setEventDraft] = useState({ title: '', description: '', date: todayISO() });
+  const [showEventForm, setShowEventForm] = useState(false);
   const [draggingHabitId, setDraggingHabitId] = useState(null);
   const [habitDropTargetId, setHabitDropTargetId] = useState(null);
   const fileRef = useRef(null);
   const bgUploadRef = useRef(null);
+  const profileUploadRef = useRef(null);
   const toast = useToast();
 
   async function handleCloudUpload() {
@@ -1046,10 +1374,18 @@ export default function DisciplinaTotalApp() {
   const locale = state.settings.locale || 'PT-BR';
   const copy = getCopy(locale);
   const backgroundValue = usingImageBackground ? `url(${state.appearance.backgroundImage})` : themeGradients[state.appearance.themeMode || 'dark'];
+  const displayUserName = String(state.settings.userName || '').trim();
+  const sidebarTitle = displayUserName || (locale === 'EN-US' ? 'Your name' : 'Seu nome');
+  const sidebarSubtitle = copy.personalPanel || copy.brandSubtitle;
+  const profileImageSrc = state.appearance.profileImage || '';
+  const profileOriginalImageSrc = state.appearance.profileOriginalImage || profileImageSrc;
+  const profileCrop = normalizeProfileCrop(state.appearance.profileCrop);
+  const profileDisplayCrop = state.appearance.profileImageCropped ? { ...DEFAULT_PROFILE_CROP } : profileCrop;
   const fullHistory = useMemo(() => buildFullHistory(state), [state]);
   const weekDates = getDateRange(7);
   const upcomingDates = getUpcomingRoutineDates();
-  const routineWindowDates = getRoutineWindowDates(7);
+  const routineWindowDates = getRoutineWindowDates(selectedDate, 7);
+  const routineQuickDates = getCenteredDateWindow(selectedDate, 7);
   const weekSeries = weekDates.map((d) => ({ label: formatShort(d, locale), raw: d, disciplina: disciplineForDate(state, d) }));
   const monthSeries = getDateRange(30).map((d) => ({ label: formatShort(d, locale), raw: d, disciplina: disciplineForDate(state, d) }));
 
@@ -1061,14 +1397,21 @@ export default function DisciplinaTotalApp() {
 
   const todayTasksRaw = getTasksForDate(state, todayISO());
   const todayTasks = sortTasksByTime(todayTasksRaw);
-  const filteredTasks = sortTasksByTime(todayTasks.filter(taskMatchesSearch));
+  const selectedDateTasks = sortTasksByTime(getTasksForDate(state, selectedDate));
+  const filteredTasks = sortTasksByTime(selectedDateTasks.filter(taskMatchesSearch));
   const routineWeekBlocks = routineWindowDates.map((date) => ({
     date,
     tasks: getTasksForDate(state, date).filter(taskMatchesSearch),
   }));
 
   const todayDiscipline = disciplineForDate(state, todayISO());
-  const disciplineMeta = getDisciplineLabel(todayDiscipline);
+  const devMode = !!state.settings.devMode;
+  const disciplineLabels = getDisciplineLabelsForDisplay(state.settings, locale);
+  const dashboardQuotes = normalizeDashboardQuotes(state.settings);
+  const dashboardQuote = dashboardQuotes[locale] || dashboardQuotes['PT-BR'];
+  const dashboardQuoteText = dashboardQuote.text;
+  const dashboardQuoteAuthor = dashboardQuote.author;
+  const disciplineMeta = getDisciplineLabel(todayDiscipline, disciplineLabels);
   const doneCount = todayTasks.filter((t) => t.status === 'done').length;
   const pendingCount = todayTasks.filter((t) => t.status === 'pending').length;
   const weekAverage = percentage(weekSeries.reduce((sum, i) => sum + i.disciplina, 0) / weekSeries.length);
@@ -1084,6 +1427,8 @@ export default function DisciplinaTotalApp() {
   const lastDay = fullHistory[fullHistory.length - 2];
   const delta = lastDay ? todayDiscipline - lastDay.discipline : 0;
 const top3 = sortTasksByTime([...todayTasks].sort((a, b) => priorityValue(b.priority) - priorityValue(a.priority)).slice(0, 3));
+const todayEvents = getEventsForDate(state, todayISO());
+const todayDoneEvents = todayEvents.filter((event) => event.status === 'done').length;
 const weeklyGoals = (state.settings.weeklyGoals || []).map((goal) => goal.trim()).filter(Boolean);
 const hasWeeklyGoals = weeklyGoals.length > 0;
 const todayCompletedHabits = state.habits.filter((habit) => (habit.logs[todayISO()] || 0) >= Math.max(1, Number(habit.target || 1))).length;
@@ -1166,14 +1511,38 @@ function updateState(updater) { setState((prev) => updater(prev)); }
     toast.push(status === 'done' ? (locale === 'EN-US' ? 'Task completed' : 'Tarefa concluída') : (locale === 'EN-US' ? 'Status updated' : 'Status atualizado'));
   }
 
-  function toggleSubtask(taskId, subtaskId) {
+  function toggleSubtask(taskId, subtaskId, taskDate = todayISO()) {
     updateState((prev) => ({
       ...prev,
       tasks: prev.tasks.map((t) => {
         if (t.id !== taskId) return t;
-        const subtasks = (t.subtasks || []).map((s) => (s.id === subtaskId ? { ...s, done: !s.done } : s));
+        const normalizedTask = normalizeTaskRecord(t);
+
+        if (isRecurringTask(normalizedTask)) {
+          const currentSubtasks = getTaskSubtasksForDate(normalizedTask, taskDate);
+          const nextSubtasks = currentSubtasks.map((s) => (s.id === subtaskId ? { ...s, done: !s.done } : s));
+          const allDone = nextSubtasks.length > 0 && nextSubtasks.every((s) => s.done);
+          const dateStatusMap = nextSubtasks.reduce((acc, subtask) => {
+            acc[subtask.id] = !!subtask.done;
+            return acc;
+          }, {});
+
+          return {
+            ...normalizedTask,
+            occurrenceStatus: {
+              ...(normalizedTask.occurrenceStatus || {}),
+              [taskDate]: allDone ? 'done' : 'pending',
+            },
+            occurrenceSubtasks: {
+              ...(normalizedTask.occurrenceSubtasks || {}),
+              [taskDate]: dateStatusMap,
+            },
+          };
+        }
+
+        const subtasks = (normalizedTask.subtasks || []).map((s) => (s.id === subtaskId ? { ...s, done: !s.done } : s));
         const allDone = subtasks.length > 0 && subtasks.every((s) => s.done);
-        return { ...t, subtasks, status: allDone ? 'done' : t.status === 'done' ? 'pending' : t.status };
+        return { ...normalizedTask, subtasks, status: allDone ? 'done' : normalizedTask.status === 'done' ? 'pending' : normalizedTask.status };
       }),
     }));
   }
@@ -1204,7 +1573,8 @@ function updateState(updater) { setState((prev) => updater(prev)); }
   }
 
   function openNewTask() {
-    setEditingTask({ id: uid(), title: '', description: '', category: 'pessoal', priority: 'média', time: '', status: 'pending', date: todayISO(), color: priorityColor('média'), subtasks: [], repeatDays: [], occurrenceStatus: {} });
+    const baseTaskDate = page === 'routine' ? selectedDate : todayISO();
+    setEditingTask({ id: uid(), title: '', description: '', category: 'pessoal', priority: 'média', time: '', status: 'pending', date: baseTaskDate, color: priorityColor('média'), subtasks: [], repeatDays: [], occurrenceStatus: {}, occurrenceSubtasks: {} });
     setShowTaskModal(true);
   }
 
@@ -1212,16 +1582,20 @@ function updateState(updater) { setState((prev) => updater(prev)); }
     const { effectiveDate, isRecurringOccurrence, ...taskBase } = task;
     const cleanedSubtasks = (taskBase.subtasks || []).filter((s) => (s.title || '').trim()).map((s) => ({ ...s, title: s.title.trim() }));
     const repeatDays = normalizeRepeatDays(taskBase.repeatDays);
+    const templateSubtasks = repeatDays.length
+      ? cleanedSubtasks.map((subtask) => ({ ...subtask, done: false }))
+      : cleanedSubtasks;
     const normalizedTask = {
       ...taskBase,
       date: taskBase.date || todayISO(),
       time: normalizeTaskTimeInput(taskBase.time || ''),
       color: priorityColor(taskBase.priority),
-      subtasks: cleanedSubtasks,
+      subtasks: templateSubtasks,
       repeatDays,
       occurrenceStatus: taskBase.occurrenceStatus && typeof taskBase.occurrenceStatus === 'object' ? taskBase.occurrenceStatus : {},
+      occurrenceSubtasks: taskBase.occurrenceSubtasks && typeof taskBase.occurrenceSubtasks === 'object' ? taskBase.occurrenceSubtasks : {},
       status: repeatDays.length
-        ? (taskBase.status || 'pending')
+        ? 'pending'
         : (cleanedSubtasks.length && cleanedSubtasks.every((s) => s.done) ? 'done' : taskBase.status === 'done' && cleanedSubtasks.length ? 'pending' : (taskBase.status || 'pending')),
     };
     updateState((prev) => {
@@ -1323,6 +1697,75 @@ function updateState(updater) { setState((prev) => updater(prev)); }
     toast.push(copy.resetDone);
   }
 
+  function setDisciplineLabel(tone, value) {
+    updateState((prev) => ({
+      ...prev,
+      settings: {
+        ...prev.settings,
+        disciplineLabelsCustomized: true,
+        disciplineLabels: {
+          ...getDisciplineLabelsForDisplay(prev.settings, locale),
+          [tone]: value,
+        },
+      },
+    }));
+  }
+
+  function setDashboardQuoteValue(localeKey, field, value) {
+    updateState((prev) => {
+      const dashboardQuotes = normalizeDashboardQuotes(prev.settings);
+      return {
+        ...prev,
+        settings: {
+          ...prev.settings,
+          dashboardQuotes: {
+            ...dashboardQuotes,
+            [localeKey]: {
+              ...dashboardQuotes[localeKey],
+              [field]: value,
+            },
+          },
+        },
+      };
+    });
+  }
+
+  function saveEvent() {
+    const normalizedEvent = normalizeEventRecord({
+      ...eventDraft,
+      date: eventDraft.date || selectedDate || todayISO(),
+    });
+    if (!normalizedEvent?.title) {
+      toast.push(locale === 'EN-US' ? 'Give the event a name' : 'Dê um nome ao evento');
+      return;
+    }
+
+    updateState((prev) => ({
+      ...prev,
+      events: [...(prev.events || []), normalizedEvent],
+    }));
+    setSelectedDate(normalizedEvent.date);
+    setEventDraft({ title: '', description: '', date: normalizedEvent.date || selectedDate || todayISO() });
+    setShowEventForm(false);
+    toast.push(locale === 'EN-US' ? 'Event saved' : 'Evento salvo');
+  }
+
+  function toggleEventStatus(eventId) {
+    updateState((prev) => ({
+      ...prev,
+      events: (prev.events || []).map((event) => (
+        event.id === eventId
+          ? { ...event, status: event.status === 'done' ? 'pending' : 'done' }
+          : event
+      )),
+    }));
+  }
+
+  function removeEvent(eventId) {
+    updateState((prev) => ({ ...prev, events: (prev.events || []).filter((event) => event.id !== eventId) }));
+    toast.push(locale === 'EN-US' ? 'Event removed' : 'Evento removido');
+  }
+
   function applyBackgroundFile(file) {
     const reader = new FileReader();
     reader.onload = () => {
@@ -1342,7 +1785,110 @@ function updateState(updater) { setState((prev) => updater(prev)); }
 
   function clearBackgroundImage() {
     updateState((prev) => ({ ...prev, appearance: { ...prev.appearance, backgroundImage: '', backgroundUrl: '' } }));
-    toast.push('Voltando ao tema');
+    toast.push(locale === 'EN-US' ? 'Back to theme' : 'Voltando ao tema');
+  }
+
+  function openProfileCropEditor(crop = state.appearance.profileCrop) {
+    const source = state.appearance.profileOriginalImage || state.appearance.profileImage;
+    if (!source) {
+      toast.push(locale === 'EN-US' ? 'Add a profile photo first' : 'Adicione uma foto primeiro');
+      return;
+    }
+    setProfileCropDraft(normalizeProfileCrop(crop));
+    setShowProfileCropModal(true);
+  }
+
+  function applyProfileFile(file) {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = String(reader.result || '');
+      const nextCrop = { ...DEFAULT_PROFILE_CROP };
+      updateState((prev) => ({
+        ...prev,
+        appearance: {
+          ...prev.appearance,
+          profileImage: result,
+          profileOriginalImage: result,
+          profileUrl: '',
+          profileCrop: nextCrop,
+          profileImageCropped: false,
+        },
+      }));
+      setProfileCropDraft(nextCrop);
+      setShowProfileCropModal(true);
+      toast.push(locale === 'EN-US' ? 'Profile photo applied' : 'Foto de perfil aplicada');
+    };
+    reader.readAsDataURL(file);
+  }
+
+  function applyProfileUrl() {
+    const url = (state.appearance.profileUrl || '').trim();
+    if (!url) { toast.push(locale === 'EN-US' ? 'Paste a valid URL' : 'Cole uma URL válida'); return; }
+    const nextCrop = { ...DEFAULT_PROFILE_CROP };
+    updateState((prev) => ({
+      ...prev,
+      appearance: {
+        ...prev.appearance,
+        profileImage: url,
+        profileOriginalImage: url,
+        profileUrl: url,
+        profileCrop: nextCrop,
+        profileImageCropped: false,
+      },
+    }));
+    setProfileCropDraft(nextCrop);
+    setShowProfileCropModal(true);
+    toast.push(locale === 'EN-US' ? 'Profile photo applied' : 'Foto de perfil aplicada');
+  }
+
+  async function saveProfileCrop() {
+    const nextCrop = normalizeProfileCrop(profileCropDraft);
+    const source = state.appearance.profileOriginalImage || state.appearance.profileImage;
+
+    try {
+      const croppedImage = await createProfileCropDataUrl(source, nextCrop);
+      updateState((prev) => ({
+        ...prev,
+        appearance: {
+          ...prev.appearance,
+          profileImage: croppedImage,
+          profileOriginalImage: source,
+          profileCrop: nextCrop,
+          profileImageCropped: true,
+        },
+      }));
+    } catch {
+      updateState((prev) => ({
+        ...prev,
+        appearance: {
+          ...prev.appearance,
+          profileImage: source,
+          profileOriginalImage: source,
+          profileCrop: nextCrop,
+          profileImageCropped: false,
+        },
+      }));
+    }
+
+    setShowProfileCropModal(false);
+    toast.push(locale === 'EN-US' ? 'Profile photo adjusted' : 'Foto de perfil ajustada');
+  }
+
+  function clearProfileImage() {
+    updateState((prev) => ({
+      ...prev,
+      appearance: {
+        ...prev.appearance,
+        profileImage: '',
+        profileOriginalImage: '',
+        profileUrl: '',
+        profileCrop: { ...DEFAULT_PROFILE_CROP },
+        profileImageCropped: false,
+      },
+    }));
+    setProfileCropDraft({ ...DEFAULT_PROFILE_CROP });
+    setShowProfileCropModal(false);
+    toast.push(locale === 'EN-US' ? 'Profile photo removed' : 'Foto de perfil removida');
   }
 
   function addPomodoroUrl() {
@@ -1397,12 +1943,43 @@ if (page === 'dashboard') {
           <div>
             <div className="eyebrow"><Sparkles size={14} /> {locale === 'EN-US' ? `Welcome back, ${state.settings.userName}` : `Bem-vindo de volta, ${state.settings.userName}`}</div>
             <h2>{locale === 'EN-US' ? `Your discipline today is ${todayDiscipline}%` : `Sua disciplina de hoje está em ${todayDiscipline}%`}</h2>
-            <p>{locale === 'EN-US' ? <>“Whoever lives only for the instant runs away from oneself.” — <strong>Friedrich Nietzsche</strong>.</> : <>“Quem vive só para o instante foge de si mesmo.” — <strong>Friedrich Nietzsche</strong>.</>}</p>
+            <p
+              className={cls(devMode && 'dev-editable-copy')}
+              title={devMode ? (locale === 'EN-US' ? 'Edit this quote in Settings' : 'Edite esta frase nas Configurações') : undefined}
+            >
+              “{dashboardQuoteText}” — <strong>{dashboardQuoteAuthor}</strong>.
+            </p>
             <div className="hero-tags">
-              <span className={cls('pill', disciplineMeta.tone)}>{disciplineMeta.text}</span>
+              <button
+                type="button"
+                className={cls('pill', disciplineMeta.tone, devMode && 'discipline-label-button')}
+                onClick={() => devMode && setShowDisciplineLabelEditor((value) => !value)}
+                title={devMode ? (locale === 'EN-US' ? 'Click to edit discipline labels' : 'Clique para editar os labels da disciplina') : undefined}
+              >
+                <span className="discipline-label-text">{disciplineMeta.text}</span>
+              </button>
               <span className="pill">{locale === 'EN-US' ? 'Goal' : 'Meta'}: {state.settings.dailyGoal}%</span>
               <span className="pill">{locale === 'EN-US' ? 'Streak' : 'Sequência'}: {streak} {locale === 'EN-US' ? 'days' : 'dias'}</span>
             </div>
+            {devMode && showDisciplineLabelEditor ? (
+              <div className="discipline-label-editor glass-inner">
+                <div className="section-subtitle">{locale === 'EN-US' ? 'Edit the four discipline names.' : 'Edite os quatro nomes da disciplina.'}</div>
+                <div className="form-grid compact-grid">
+                  <Field label="0–39">
+                    <input value={disciplineLabels.danger} onChange={(e) => setDisciplineLabel('danger', e.target.value)} />
+                  </Field>
+                  <Field label="40–69">
+                    <input value={disciplineLabels.warn} onChange={(e) => setDisciplineLabel('warn', e.target.value)} />
+                  </Field>
+                  <Field label="70–89">
+                    <input value={disciplineLabels.info} onChange={(e) => setDisciplineLabel('info', e.target.value)} />
+                  </Field>
+                  <Field label="90–100">
+                    <input value={disciplineLabels.success} onChange={(e) => setDisciplineLabel('success', e.target.value)} />
+                  </Field>
+                </div>
+              </div>
+            ) : null}
             <div className="progress-block">
               <div className="progress-head"><span>{locale === 'EN-US' ? 'Day progress' : 'Progresso do dia'}</span><strong>{todayDiscipline}%</strong></div>
               <div className="progress-track"><div className="progress-fill" style={{ width: `${todayDiscipline}%` }} /></div>
@@ -1470,82 +2047,48 @@ if (page === 'dashboard') {
         </section>
 
         <div className="dashboard-side-stack">
-          <section className="glass section-card dashboard-quick-card">
-            <SectionHeader title={locale === 'EN-US' ? 'Quick add' : 'Adição rápida'} subtitle={locale === 'EN-US' ? 'Throw a task into the system in seconds.' : 'Jogue uma tarefa no sistema em segundos.'} />
-            <div className="quick-add-vertical">
-              <input
-                value={editingTask?.title || ''}
-                onChange={(e) => setEditingTask({ ...(editingTask || {}), title: e.target.value })}
-                placeholder={locale === 'EN-US' ? 'Ex.: review goals for 15 minutes' : 'Ex.: revisar metas por 15 minutos'}
-              />
-              <button className="primary-btn full-btn" onClick={() => {
-                const title = (editingTask?.title || '').trim();
-                if (!title) return;
-                const task = { id: uid(), title, description: '', category: 'pessoal', priority: 'média', time: '', status: 'pending', date: todayISO(), subtasks: [] };
-                updateState((prev) => ({ ...prev, tasks: [...prev.tasks, task] }));
-                setEditingTask(null); toast.push(locale === 'EN-US' ? 'Quickly added' : 'Adicionado rapidamente');
-              }}>
-                <Plus size={16} /> {locale === 'EN-US' ? 'Add' : 'Adicionar'}
-              </button>
-            </div>
-          </section>
-
-          <section className="glass section-card dashboard-weekly-card">
-            <div className="section-head-row">
-              <div>
-                <div className="section-title with-icon"><Trophy size={16} /> {locale === 'EN-US' ? 'Weekly panel' : 'Painel semanal'}</div>
-                <div className="section-subtitle">{locale === 'EN-US' ? 'Useful week summary, no dead space.' : 'Resumo útil da semana, sem espaço morto.'}</div>
-              </div>
-              <span className="pill">{daysAboveGoal}/7 {locale === 'EN-US' ? 'above goal' : 'acima da meta'}</span>
-            </div>
-
-            {hasWeeklyGoals ? (
-              <div className="stack small-gap weekly-goal-list">
-                {weeklyGoals.map((goal, idx) => (
-                  <div key={idx} className="goal-chip goal-chip-inline">
-                    <span className="goal-chip-index">{idx + 1}</span>
-                    <span>{goal}</span>
+          <section className="glass section-card dashboard-events-card">
+            <SectionHeader
+              title={locale === 'EN-US' ? 'Today events' : 'Eventos do dia'}
+              subtitle={locale === 'EN-US' ? `${todayDoneEvents}/${todayEvents.length} completed today.` : `${todayDoneEvents}/${todayEvents.length} concluído(s) hoje.`}
+              action={
+                <button
+                  className="ghost-btn"
+                  onClick={() => {
+                    const date = todayISO();
+                    setSelectedDate(date);
+                    setEventDraft({ title: '', description: '', date });
+                    setShowEventForm(true);
+                    setPage('events');
+                  }}
+                >
+                  <Plus size={16} /> {locale === 'EN-US' ? 'Event' : 'Evento'}
+                </button>
+              }
+            />
+            {todayEvents.length ? (
+              <div className="stack small-gap">
+                {todayEvents.map((event) => (
+                  <div key={event.id} className="task-mini-row event-row dashboard-event-row">
+                    <button className="task-check" onClick={() => toggleEventStatus(event.id)}>
+                      {event.status === 'done' ? <CheckCircle2 size={18} /> : <Circle size={18} />}
+                    </button>
+                    <div className="task-mini-copy">
+                      <div className={cls('row-title', event.status === 'done' && 'done')}>{event.title}</div>
+                      <div className="row-sub">{event.description || (locale === 'EN-US' ? 'Counts as 1 discipline item' : 'Conta como 1 item no arco')}</div>
+                    </div>
+                    <span className={cls('pill', event.status === 'done' ? 'success' : 'warn')}>
+                      {event.status === 'done' ? copy.done : copy.pendingBtn}
+                    </span>
                   </div>
                 ))}
               </div>
-            ) : null}
-
-            <div className="weekly-summary-grid">
-              <MiniStat label={locale === 'EN-US' ? 'Week average' : 'Média da semana'} value={`${weekAverage}%`} />
-              <MiniStat label={locale === 'EN-US' ? 'Execution' : 'Execução'} value={`${weekCompletionRate}%`} />
-              <MiniStat label={locale === 'EN-US' ? 'Completed' : 'Concluídas'} value={`${weekDoneTasks}/${weekTotalTasks || 0}`} />
-              <MiniStat label={locale === 'EN-US' ? 'Record' : 'Recorde'} value={`${record}%`} />
-            </div>
-
-            <div className="insight-list">
-              {bestWeekDay ? (
-                <div className="simple-card">
-                  <div className="row-title">{locale === 'EN-US' ? 'Best day' : 'Melhor dia'}</div>
-                  <div className="row-sub">{formatShort(bestWeekDay.raw, locale)} • {bestWeekDay.disciplina}% {locale === 'EN-US' ? 'discipline' : 'de disciplina'}</div>
-                </div>
-              ) : null}
-
-              <div className="simple-card">
-                <div className="row-title">{locale === 'EN-US' ? 'Week rhythm' : 'Ritmo da semana'}</div>
-                <div className="row-sub">{locale === 'EN-US' ? `${daysAboveGoal} out of 7 days stayed above the daily goal.` : `${daysAboveGoal} de 7 dias ficaram acima da meta diária.`}</div>
+            ) : (
+              <div className="empty-state-card">
+                <div className="row-title">{locale === 'EN-US' ? 'No events today.' : 'Sem eventos hoje.'}</div>
+                <div className="row-sub">{locale === 'EN-US' ? 'Use the Events tab to add an important date.' : 'Use a aba Eventos para adicionar uma data importante.'}</div>
               </div>
-
-              {nextPendingTask ? (
-                <div className="simple-card">
-                  <div className="row-title">{locale === 'EN-US' ? 'Next pending item' : 'Próxima pendência'}</div>
-                  <div className="row-sub">{nextPendingTask.title}{nextPendingTask.time ? ` • ${nextPendingTask.time}` : ''}</div>
-                </div>
-              ) : (
-                <div className="simple-card">
-                  <div className="row-title">{locale === 'EN-US' ? 'Clean day' : 'Dia limpo'}</div>
-                  <div className="row-sub">
-                    {locale === "EN-US"
-                      ? `Everything in today's panel has already been marked as done.`
-                      : `Tudo que está no painel de hoje já foi marcado como feito.`}
-                  </div>
-                </div>
-              )}
-            </div>
+            )}
           </section>
         </div>
       </div>
@@ -1576,36 +2119,62 @@ if (page === 'dashboard') {
           </div>
         </section>
 
-        <section className="glass section-card">
-          <SectionHeader
-              title={locale === "EN-US" ? "Top 3 priorities" : "Top 3 prioridades"}
-              subtitle={
-                locale === "EN-US"
-                  ? "What most supports the day's result."
-                  : "O que mais sustenta o resultado do dia."
-              }
-              action={
-                <button className="ghost-btn" onClick={openNewTask}>
-                  <Plus size={16} /> {locale === "EN-US" ? "Task" : "Tarefa"}
-                </button>
-              }
-          />
-          {top3.length ? (
-            <div className="stack">
-              {top3.map((task, idx) => (
-                <div key={task.id} className="priority-card">
-                  <div className="priority-index">{idx + 1}</div>
-                  <div className="priority-copy"><div className="row-title">{task.title}</div><div className="row-sub">{categoryLabel(task.category, locale)} • {priorityLabel(task.priority, locale)}</div></div>
-                  <span className={cls('priority-pill', task.priority)}>{priorityLabel(task.priority, locale)}</span>
+        <section className="glass section-card dashboard-weekly-card">
+          <div className="section-head-row">
+            <div>
+              <div className="section-title with-icon"><Trophy size={16} /> {locale === 'EN-US' ? 'Weekly panel' : 'Painel semanal'}</div>
+              <div className="section-subtitle">{locale === 'EN-US' ? 'Useful week summary, no dead space.' : 'Resumo útil da semana, sem espaço morto.'}</div>
+            </div>
+            <span className="pill">{daysAboveGoal}/7 {locale === 'EN-US' ? 'above goal' : 'acima da meta'}</span>
+          </div>
+
+          {hasWeeklyGoals ? (
+            <div className="stack small-gap weekly-goal-list">
+              {weeklyGoals.map((goal, idx) => (
+                <div key={idx} className="goal-chip goal-chip-inline">
+                  <span className="goal-chip-index">{idx + 1}</span>
+                  <span>{goal}</span>
                 </div>
               ))}
             </div>
-          ) : (
-            <div className="empty-state-card">
-              <div className="row-title">{locale === 'EN-US' ? 'No priorities defined.' : 'Sem prioridades definidas.'}</div>
-              <div className="row-sub">{locale === 'EN-US' ? 'Add tasks and the ranking appears here automatically.' : 'Adicione tarefas e o ranking aparece aqui automaticamente.'}</div>
+          ) : null}
+
+          <div className="weekly-summary-grid">
+            <MiniStat label={locale === 'EN-US' ? 'Week average' : 'Média da semana'} value={`${weekAverage}%`} />
+            <MiniStat label={locale === 'EN-US' ? 'Execution' : 'Execução'} value={`${weekCompletionRate}%`} />
+            <MiniStat label={locale === 'EN-US' ? 'Completed' : 'Concluídas'} value={`${weekDoneTasks}/${weekTotalTasks || 0}`} />
+            <MiniStat label={locale === 'EN-US' ? 'Record' : 'Recorde'} value={`${record}%`} />
+          </div>
+
+          <div className="insight-list">
+            {bestWeekDay ? (
+              <div className="simple-card">
+                <div className="row-title">{locale === 'EN-US' ? 'Best day' : 'Melhor dia'}</div>
+                <div className="row-sub">{formatShort(bestWeekDay.raw, locale)} • {bestWeekDay.disciplina}% {locale === 'EN-US' ? 'discipline' : 'de disciplina'}</div>
+              </div>
+            ) : null}
+
+            <div className="simple-card">
+              <div className="row-title">{locale === 'EN-US' ? 'Week rhythm' : 'Ritmo da semana'}</div>
+              <div className="row-sub">{locale === 'EN-US' ? `${daysAboveGoal} out of 7 days stayed above the daily goal.` : `${daysAboveGoal} de 7 dias ficaram acima da meta diária.`}</div>
             </div>
-          )}
+
+            {nextPendingTask ? (
+              <div className="simple-card">
+                <div className="row-title">{locale === 'EN-US' ? 'Next pending item' : 'Próxima pendência'}</div>
+                <div className="row-sub">{nextPendingTask.title}{nextPendingTask.time ? ` • ${nextPendingTask.time}` : ''}</div>
+              </div>
+            ) : (
+              <div className="simple-card">
+                <div className="row-title">{locale === 'EN-US' ? 'Clean day' : 'Dia limpo'}</div>
+                <div className="row-sub">
+                  {locale === "EN-US"
+                    ? `Everything in today's panel has already been marked as done.`
+                    : `Tudo que está no painel de hoje já foi marcado como feito.`}
+                </div>
+              </div>
+            )}
+          </div>
         </section>
       </div>
     </div>
@@ -1615,14 +2184,37 @@ if (page === 'dashboard') {
     if (page === 'routine') {
       return (
         <div className="stack large-gap">
-          <section className="glass section-card">
-            <SectionHeader title={locale === 'EN-US' ? 'Your operational board' : 'Seu painel operacional do dia'} subtitle={locale === 'EN-US' ? 'Filter, prioritize, execute and track.' : 'Filtre, priorize, execute e registre.'} action={<button className="primary-btn" onClick={openNewTask}><Plus size={16} /> {copy.newTask}</button>} />
-            <div className="toolbar-row routine-toolbar-wrap">
-              <div className="search-box"><Search size={16} /><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder={locale === 'EN-US' ? 'Search task' : 'Buscar tarefa'} /></div>
-              <div className="routine-view-toggle">
-                <button className={cls('ghost-btn', routineView === 'day' && 'active-filter')} onClick={() => setRoutineView('day')}>{locale === 'EN-US' ? 'Today' : 'Hoje'}</button>
-                <button className={cls('ghost-btn', routineView === 'week' && 'active-filter')} onClick={() => setRoutineView('week')}>{copy.allTasks}</button>
+          <section className="glass section-card routine-control-card">
+            <SectionHeader
+              title={locale === 'EN-US' ? 'Your operational board' : 'Seu painel operacional do dia'}
+              subtitle={locale === 'EN-US' ? 'Choose the date, filter and register what was completed.' : 'Escolha a data, filtre e registre o que foi concluído.'}
+              action={
+                <button className="primary-btn routine-add-task-btn" onClick={openNewTask}>
+                  <Plus size={16} /> {copy.newTask}
+                </button>
+              }
+            />
+            <div className="routine-command-row">
+              <div className="search-box routine-search-box"><Search size={16} /><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder={locale === 'EN-US' ? 'Search task' : 'Buscar tarefa'} /></div>
+              <div className="routine-mode-switch">
+                <button type="button" className={cls(routineView === 'day' && 'active')} onClick={() => { setSelectedDate(todayISO()); setRoutineView('day'); }}>{locale === 'EN-US' ? 'Day' : 'Dia'}</button>
+                <button type="button" className={cls(routineView === 'week' && 'active')} onClick={() => setRoutineView('week')}>{locale === 'EN-US' ? '7 days' : '7 dias'}</button>
               </div>
+            </div>
+            <div className="date-panel">
+              <DateSelector
+                value={selectedDate}
+                locale={locale}
+                discipline={disciplineForDate(state, selectedDate)}
+                onChange={(date) => { setSelectedDate(date); setRoutineView('day'); }}
+              />
+              <DateStrip
+                dates={routineQuickDates}
+                value={selectedDate}
+                locale={locale}
+                onChange={(date) => { setSelectedDate(date); setRoutineView('day'); }}
+                getMetric={(date) => `${disciplineForDate(state, date)}%`}
+              />
             </div>
           </section>
           {routineView === 'day' ? (
@@ -1641,7 +2233,7 @@ if (page === 'dashboard') {
                         <div className="subtask-list">
                           {task.subtasks.map((s) => (
                             <div key={s.id} className="subtask-item">
-                              <button type="button" className={cls('subtask-toggle', s.done && 'done')} onClick={() => toggleSubtask(task.id, s.id)}>{s.done ? '✓' : ''}</button>
+                              <button type="button" className={cls('subtask-toggle', s.done && 'done')} onClick={() => toggleSubtask(task.id, s.id, task.effectiveDate || task.date)}>{s.done ? '✓' : ''}</button>
                               <span className={cls(s.done && 'done')}>{s.title}</span>
                             </div>
                           ))}
@@ -1659,8 +2251,8 @@ if (page === 'dashboard') {
                 </motion.div>
               )) : (
                 <div className="glass section-card empty-state-card">
-                  <div className="row-title">{locale === 'EN-US' ? 'Nothing scheduled for today.' : 'Nada programado para hoje.'}</div>
-                  <div className="row-sub">{locale === 'EN-US' ? 'Create a task or use the 7-day view to plan ahead.' : 'Crie uma tarefa ou use a visão de 7 dias para planejar à frente.'}</div>
+                  <div className="row-title">{locale === 'EN-US' ? 'Nothing scheduled for this date.' : 'Nada programado nesta data.'}</div>
+                  <div className="row-sub">{locale === 'EN-US' ? 'Create a task for the selected day or use recurring weekdays.' : 'Crie uma tarefa para o dia selecionado ou use dias recorrentes.'}</div>
                 </div>
               )}
             </div>
@@ -1704,6 +2296,167 @@ if (page === 'dashboard') {
               ))}
             </div>
           )}
+        </div>
+      );
+    }
+
+    if (page === 'events') {
+      const normalizedEvents = (state.events || []).map(normalizeEventRecord).filter((event) => event?.title);
+      const eventDates = [...new Set(normalizedEvents.map((event) => event.date))].sort();
+      const eventQuickDates = getCenteredDateWindow(selectedDate, 7);
+      const selectedEvents = getEventsForDate(state, selectedDate);
+
+      return (
+        <div className="stack large-gap">
+          <section className="glass section-card">
+            <SectionHeader
+              title={locale === 'EN-US' ? 'Events' : 'Eventos'}
+              subtitle={`${formatFullDate(selectedDate, locale)} · ${disciplineForDate(state, selectedDate)}%`}
+              action={
+                <button
+                  className="primary-btn event-add-btn compact-panel-btn"
+                  onClick={() => {
+                    setEventDraft({ title: '', description: '', date: selectedDate || todayISO() });
+                    setShowEventForm((prev) => !prev);
+                  }}
+                >
+                  <Plus size={18} /> <span>{showEventForm ? (locale === 'EN-US' ? 'Close' : 'Fechar') : (locale === 'EN-US' ? 'Add event' : 'Adicionar evento')}</span>
+                </button>
+              }
+            />
+            <div className="date-panel event-selected-panel">
+              <DateSelector
+                value={selectedDate}
+                locale={locale}
+                discipline={disciplineForDate(state, selectedDate)}
+                onChange={(date) => {
+                  setSelectedDate(date);
+                  setEventDraft((prev) => ({ ...prev, date }));
+                }}
+              />
+              <DateStrip
+                dates={eventQuickDates}
+                value={selectedDate}
+                locale={locale}
+                onChange={(date) => {
+                  setSelectedDate(date);
+                  setEventDraft((prev) => ({ ...prev, date }));
+                }}
+                getMetric={(date) => `${getEventsForDate(state, date).length} ${locale === 'EN-US' ? 'event' : 'evento'}`}
+              />
+            </div>
+            {showEventForm ? (
+              <div className="event-inline-form glass-inner">
+                <div className="event-selected-date-note">
+                  <CalendarDays size={15} />
+                  <span>{locale === 'EN-US' ? 'Saving on' : 'Salvando em'}: <strong>{formatFullDate(eventDraft.date || selectedDate, locale)}</strong></span>
+                </div>
+                <div className="event-form-grid inline-event-fields">
+                  <Field label={locale === 'EN-US' ? 'Event name' : 'Nome do evento'}>
+                    <input
+                      value={eventDraft.title}
+                      onChange={(e) => setEventDraft((prev) => ({ ...prev, title: e.target.value }))}
+                      placeholder={locale === 'EN-US' ? 'Example: exam, presentation, trip' : 'Ex.: prova, apresentação, viagem'}
+                    />
+                  </Field>
+                  <Field label={locale === 'EN-US' ? 'Event date' : 'Data do evento'}>
+                    <DateSelector
+                      value={eventDraft.date || selectedDate}
+                      locale={locale}
+                      discipline={disciplineForDate(state, eventDraft.date || selectedDate)}
+                      className="event-form-date-selector"
+                      onChange={(date) => {
+                        setEventDraft((prev) => ({ ...prev, date: normalizeISODateInput(date, eventDraft.date || selectedDate || todayISO()) }));
+                      }}
+                    />
+                  </Field>
+                </div>
+                <div className="event-form-grid inline-event-note-row">
+                  <Field label={locale === 'EN-US' ? 'Optional note' : 'Observação opcional'}>
+                    <input
+                      value={eventDraft.description}
+                      onChange={(e) => setEventDraft((prev) => ({ ...prev, description: e.target.value }))}
+                      placeholder={locale === 'EN-US' ? 'Anything important about this date' : 'Algo importante sobre essa data'}
+                    />
+                  </Field>
+                </div>
+                <div className="event-panel-actions">
+                  <button className="ghost-btn" onClick={() => setShowEventForm(false)}>{copy.cancel}</button>
+                  <button className="primary-btn event-add-btn compact-panel-btn" onClick={saveEvent}><Plus size={18} /> <span>{locale === 'EN-US' ? 'Save event' : 'Salvar evento'}</span></button>
+                </div>
+              </div>
+            ) : null}
+            {selectedEvents.length ? (
+              <div className="stack">
+                {selectedEvents.map((event) => (
+                  <div key={event.id} className="task-mini-row event-row">
+                    <button className="task-check" onClick={() => toggleEventStatus(event.id)}>
+                      {event.status === 'done' ? <CheckCircle2 size={18} /> : <Circle size={18} />}
+                    </button>
+                    <div className="task-mini-copy">
+                      <div className={cls('row-title', event.status === 'done' && 'done')}>{event.title}</div>
+                      <div className="row-sub">
+                        {formatShort(event.date, locale)}{event.description ? ` · ${event.description}` : ` · ${locale === 'EN-US' ? 'Counts as 1 discipline item' : 'Conta como 1 item no arco'}`}
+                      </div>
+                    </div>
+                    <span className={cls('pill', event.status === 'done' ? 'success' : 'warn')}>
+                      {event.status === 'done' ? copy.done : copy.pendingBtn}
+                    </span>
+                    <button className="danger-btn compact" onClick={() => removeEvent(event.id)}><Trash2 size={14} /></button>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="empty-state-card compact-empty-state">
+                <div className="row-title">{locale === 'EN-US' ? 'No events on this date.' : 'Sem eventos nesta data.'}</div>
+                <div className="row-sub">{locale === 'EN-US' ? 'Use Add event to make it count as 1 item in the discipline arc.' : 'Clique em Adicionar evento para ele contar como 1 item no arco de disciplina.'}</div>
+              </div>
+            )}
+          </section>
+
+          <section className="glass section-card">
+            <SectionHeader
+              title={locale === 'EN-US' ? 'All events' : 'Todos os eventos'}
+              subtitle={locale === 'EN-US' ? 'Open any date and mark what happened.' : 'Abra qualquer data e marque o que aconteceu.'}
+            />
+            {eventDates.length ? (
+              <div className="routine-week-list">
+                {eventDates.map((date) => {
+                  const eventsForDate = getEventsForDate(state, date);
+                  return (
+                    <section key={date} className="glass-inner routine-day-group event-date-group">
+                      <div className="routine-day-header">
+                        <div>
+                          <div className="section-title">{formatFullDate(date, locale)}</div>
+                          <div className="section-subtitle">{eventsForDate.length} {locale === 'EN-US' ? 'event(s)' : 'evento(s)'}</div>
+                        </div>
+                        <button className="ghost-btn" onClick={() => setSelectedDate(date)}>{locale === 'EN-US' ? 'Open' : 'Abrir'}</button>
+                      </div>
+                      <div className="stack small-gap">
+                        {eventsForDate.map((event) => (
+                          <div key={event.id} className="task-mini-row event-row compact-event-row">
+                            <button className="task-check" onClick={() => toggleEventStatus(event.id)}>
+                              {event.status === 'done' ? <CheckCircle2 size={18} /> : <Circle size={18} />}
+                            </button>
+                            <div className="task-mini-copy">
+                              <div className={cls('row-title', event.status === 'done' && 'done')}>{event.title}</div>
+                              <div className="row-sub">{event.description || (locale === 'EN-US' ? 'Counts as 1 item' : 'Conta como 1 item')}</div>
+                            </div>
+                            <button className="danger-btn compact" onClick={() => removeEvent(event.id)}><Trash2 size={14} /></button>
+                          </div>
+                        ))}
+                      </div>
+                    </section>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="empty-state-card compact-empty-state">
+                <div className="row-title">{locale === 'EN-US' ? 'No events registered yet.' : 'Nenhum evento cadastrado ainda.'}</div>
+                <div className="row-sub">{locale === 'EN-US' ? 'Create the first one above.' : 'Crie o primeiro evento acima.'}</div>
+              </div>
+            )}
+          </section>
         </div>
       );
     }
@@ -1939,6 +2692,90 @@ if (page === 'stats') {
             <NumberField label={copy.dailyGoalPercent} value={state.settings.dailyGoal} onCommit={(value) => updateState((prev) => ({ ...prev, settings: { ...prev.settings, dailyGoal: value } }))} />
             <NumberField label={copy.weeklyGoalPercent} value={state.settings.weeklyGoal} onCommit={(value) => updateState((prev) => ({ ...prev, settings: { ...prev.settings, weeklyGoal: value } }))} />
           </div>
+
+          <SectionHeader title={copy.profilePhoto} subtitle={copy.profilePhotoSub} />
+          <div className="profile-settings-card glass-inner">
+            <div className="profile-preview">
+              <button type="button" className="profile-preview-avatar-btn" onClick={() => profileImageSrc && openProfileCropEditor()} disabled={!profileImageSrc} aria-label={copy.editProfilePhoto}>
+                <ProfileAvatar src={profileImageSrc} alt={sidebarTitle} crop={profileDisplayCrop} className="profile-preview-avatar" />
+              </button>
+              <div className="profile-preview-copy">
+                <strong>{sidebarTitle}</strong>
+                <span>{sidebarSubtitle}</span>
+              </div>
+            </div>
+            <div className="profile-photo-actions">
+              <button className="ghost-btn" onClick={() => profileUploadRef.current?.click()}><Upload size={16} /> {copy.uploadProfilePhoto}</button>
+              <input ref={profileUploadRef} type="file" accept="image/*" hidden onChange={(e) => e.target.files?.[0] && applyProfileFile(e.target.files[0])} />
+              <button className="ghost-btn" onClick={() => openProfileCropEditor()} disabled={!profileImageSrc}><Pencil size={16} /> {copy.editProfilePhoto}</button>
+              <button className="ghost-btn" onClick={clearProfileImage}>{copy.removeProfilePhoto}</button>
+            </div>
+            <div className="quick-add">
+              <input value={state.appearance.profileUrl || ''} onChange={(e) => updateState((prev) => ({ ...prev, appearance: { ...prev.appearance, profileUrl: e.target.value } }))} placeholder={copy.profileImageUrlPlaceholder} />
+              <button className="primary-btn" onClick={applyProfileUrl}>{copy.applyProfileUrl}</button>
+            </div>
+          </div>
+
+          <SectionHeader
+            title={locale === 'EN-US' ? 'Dev mode' : 'Dev mode'}
+            subtitle={locale === 'EN-US' ? 'Enable editing for discipline labels, quote and backdated testing.' : 'Ative para editar labels da disciplina, frase e testar datas anteriores.'}
+          />
+          <div className="stack small-gap dev-mode-panel">
+            <label className="toggle-row glass-inner">
+              <input
+                type="checkbox"
+                checked={devMode}
+                onChange={(e) => updateState((prev) => ({ ...prev, settings: { ...prev.settings, devMode: e.target.checked } }))}
+              />
+              <span>{locale === 'EN-US' ? 'Enable dev mode' : 'Ativar dev mode'}</span>
+            </label>
+            {devMode ? (
+              <div className="stack small-gap">
+                <div className="form-grid">
+                  <Field label={locale === 'EN-US' ? 'Dashboard quote PT-BR' : 'Frase do dashboard PT-BR'}>
+                    <input
+                      value={dashboardQuotes['PT-BR'].text}
+                      onChange={(e) => setDashboardQuoteValue('PT-BR', 'text', e.target.value)}
+                    />
+                  </Field>
+                  <Field label={locale === 'EN-US' ? 'Quote author PT-BR' : 'Autor da frase PT-BR'}>
+                    <input
+                      value={dashboardQuotes['PT-BR'].author}
+                      onChange={(e) => setDashboardQuoteValue('PT-BR', 'author', e.target.value)}
+                    />
+                  </Field>
+                  <Field label={locale === 'EN-US' ? 'Dashboard quote EN-US' : 'Frase do dashboard EN-US'}>
+                    <input
+                      value={dashboardQuotes['EN-US'].text}
+                      onChange={(e) => setDashboardQuoteValue('EN-US', 'text', e.target.value)}
+                    />
+                  </Field>
+                  <Field label={locale === 'EN-US' ? 'Quote author EN-US' : 'Autor da frase EN-US'}>
+                    <input
+                      value={dashboardQuotes['EN-US'].author}
+                      onChange={(e) => setDashboardQuoteValue('EN-US', 'author', e.target.value)}
+                    />
+                  </Field>
+                </div>
+                <div className="form-grid compact-grid">
+                  <Field label="0–39">
+                    <input value={disciplineLabels.danger} onChange={(e) => setDisciplineLabel('danger', e.target.value)} />
+                  </Field>
+                  <Field label="40–69">
+                    <input value={disciplineLabels.warn} onChange={(e) => setDisciplineLabel('warn', e.target.value)} />
+                  </Field>
+                  <Field label="70–89">
+                    <input value={disciplineLabels.info} onChange={(e) => setDisciplineLabel('info', e.target.value)} />
+                  </Field>
+                  <Field label="90–100">
+                    <input value={disciplineLabels.success} onChange={(e) => setDisciplineLabel('success', e.target.value)} />
+                  </Field>
+                </div>
+                <div className="row-sub">{locale === 'EN-US' ? 'Custom status labels stay the same in both languages; edit the PT-BR and EN-US quotes separately.' : 'Os labels customizados ficam iguais nos dois idiomas; edite a frase PT-BR e EN-US separadamente.'}</div>
+              </div>
+            ) : null}
+          </div>
+
           <SectionHeader title={copy.themeBackground} subtitle={copy.themeBackgroundSub} />
           <div className="stack small-gap">
             <div className="theme-toggle-row">
@@ -2006,6 +2843,20 @@ if (page === 'stats') {
     );
   })();
 
+  const mobileMainNavItems = [
+    ['dashboard', <LayoutDashboard size={16} />, copy.mobileNav.dashboard],
+    ['routine', <ListTodo size={16} />, copy.mobileNav.routine],
+    ['events', <Sparkles size={16} />, copy.mobileNav.events],
+    ['habits', <Target size={16} />, copy.mobileNav.habits],
+  ];
+  const mobileMoreNavItems = [
+    ['history', <CalendarDays size={16} />, copy.nav.history],
+    ['stats', <BarChart3 size={16} />, copy.mobileNav.stats],
+    ['pomodoro', <Focus size={16} />, copy.mobileNav.pomodoro],
+    ['settings', <Settings size={16} />, copy.mobileNav.settings],
+  ];
+  const mobileMoreActive = mobileMoreNavItems.some(([key]) => page === key);
+
   return (
     <div
       className={cls('discipline-app', isLight && 'light')}
@@ -2024,13 +2875,13 @@ if (page === 'stats') {
       <div className="bg-overlay" />
       <div className="app-frame">
         <aside className="sidebar glass">
-          <div className="brand-box">
-            <div className="brand-mark brand-mark-image">
-              <img src={`${import.meta.env.BASE_URL}logo-sidebar.png`} alt="Disciplina Total" className="brand-logo-img" />
-            </div>
+          <div className={cls('brand-box', !profileImageSrc && 'brand-box-no-photo')}>
+            {profileImageSrc ? (
+              <ProfileAvatar src={profileImageSrc} alt={sidebarTitle} crop={profileDisplayCrop} className="brand-mark brand-mark-image profile-brand-avatar" />
+            ) : null}
             <div>
-              <div className="brand-title">Disciplina Total</div>
-              <div className="brand-subtitle">{copy.brandSubtitle}</div>
+              <div className="brand-title">{sidebarTitle}</div>
+              <div className="brand-subtitle">{sidebarSubtitle}</div>
             </div>
           </div>
           <div className="goal-box">
@@ -2042,6 +2893,7 @@ if (page === 'stats') {
             {[
               ['dashboard', copy.nav.dashboard, <LayoutDashboard size={16} />],
               ['routine', copy.nav.routine, <ListTodo size={16} />],
+              ['events', copy.nav.events, <Sparkles size={16} />],
               ['habits', copy.nav.habits, <Target size={16} />],
               ['history', copy.nav.history, <CalendarDays size={16} />],
               ['stats', copy.nav.stats, <BarChart3 size={16} />],
@@ -2053,14 +2905,15 @@ if (page === 'stats') {
               </button>
             ))}
           </nav>
-{hasWeeklyGoals ? (
-  <div className="sidebar-bottom-stack">
-    <div className="week-focus glass-inner">
-      <div className="section-title with-icon"><Sparkles size={16} /> {copy.weeklyFocus}</div>
-      <p>{weeklyGoals.join(' · ')}</p>
-    </div>
-  </div>
-) : null}
+          <div className="sidebar-bottom-stack">
+            {hasWeeklyGoals ? (
+              <div className="week-focus glass-inner">
+                <div className="section-title with-icon"><Sparkles size={16} /> {copy.weeklyFocus}</div>
+                <p>{weeklyGoals.join(' · ')}</p>
+              </div>
+            ) : null}
+            <div className="creator-credit glass-inner"><span>{copy.creatorCreditLabel}</span><strong>{copy.creatorName}</strong></div>
+          </div>
         </aside>
 
         <main className="main-zone">
@@ -2072,6 +2925,8 @@ if (page === 'stats') {
             <div className="topbar-actions">
               {page === 'routine' ? (
                 <button className="ghost-btn" onClick={openNewTask}><Plus size={16} /> {copy.newTask}</button>
+              ) : page === 'events' ? (
+                <button className="ghost-btn" onClick={() => { setEventDraft({ title: '', description: '', date: selectedDate || todayISO() }); setShowEventForm(true); }}><Plus size={16} /> {locale === 'EN-US' ? 'Event' : 'Evento'}</button>
               ) : page === 'habits' ? (
                 <button className="ghost-btn" onClick={openNewHabit}><Plus size={16} /> {copy.newHabit}</button>
               ) : null}
@@ -2079,19 +2934,51 @@ if (page === 'stats') {
             </div>
           </header>
           <div className="page-content">{pageBody}</div>
+          <AnimatePresence>
+            {mobileMoreOpen ? (
+              <motion.div
+                className="mobile-more-backdrop"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                onClick={() => setMobileMoreOpen(false)}
+              >
+                <motion.div
+                  className="mobile-more-sheet glass"
+                  initial={{ opacity: 0, y: 18, scale: 0.98 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: 18, scale: 0.98 }}
+                  onClick={(event) => event.stopPropagation()}
+                >
+                  <div className="mobile-more-title">{copy.mobileNav.more}</div>
+                  <div className="mobile-more-grid">
+                    {mobileMoreNavItems.map(([key, icon, label]) => (
+                      <button
+                        key={key}
+                        className={cls('mobile-more-btn', page === key && 'active')}
+                        onClick={() => { setPage(key); setMobileMoreOpen(false); }}
+                      >
+                        {icon}<span>{label}</span>
+                      </button>
+                    ))}
+                  </div>
+                  <div className="mobile-creator-credit"><span>{copy.creatorCreditLabel}</span><strong>{copy.creatorName}</strong></div>
+                </motion.div>
+              </motion.div>
+            ) : null}
+          </AnimatePresence>
           <nav className="mobile-nav glass">
-            {[
-              ['dashboard', <LayoutDashboard size={16} />, copy.mobileNav.dashboard],
-              ['routine', <ListTodo size={16} />, copy.mobileNav.routine],
-              ['habits', <Target size={16} />, copy.mobileNav.habits],
-              ['stats', <BarChart3 size={16} />, copy.mobileNav.stats],
-              ['pomodoro', <Focus size={16} />, copy.mobileNav.pomodoro],
-              ['settings', <Settings size={16} />, copy.mobileNav.settings],
-            ].map(([key, icon, label]) => (
-              <button key={key} className={cls('mobile-btn', page === key && 'active')} onClick={() => setPage(key)}>
+            {mobileMainNavItems.map(([key, icon, label]) => (
+              <button key={key} className={cls('mobile-btn', page === key && 'active')} onClick={() => { setPage(key); setMobileMoreOpen(false); }}>
                 {icon}<span>{label}</span>
               </button>
             ))}
+            <button
+              className={cls('mobile-btn', mobileMoreActive && 'active')}
+              onClick={() => setMobileMoreOpen((value) => !value)}
+            >
+              <MoreHorizontal size={16} /><span>{copy.mobileNav.more}</span>
+            </button>
           </nav>
         </main>
       </div>
@@ -2107,6 +2994,16 @@ if (page === 'stats') {
         cancelLabel={copy.cancel}
         onClose={() => setShowResetModal(false)}
         onConfirm={resetAll}
+      />
+      <ProfileCropModal
+        open={showProfileCropModal}
+        locale={locale}
+        imageSrc={profileOriginalImageSrc}
+        crop={profileCropDraft}
+        onCropChange={setProfileCropDraft}
+        onReset={() => setProfileCropDraft({ ...DEFAULT_PROFILE_CROP })}
+        onClose={() => setShowProfileCropModal(false)}
+        onSave={saveProfileCrop}
       />
       <ToastLayer items={toast.items} />
     </div>
@@ -2142,6 +3039,158 @@ function SectionHeader({ title, subtitle, action = null }) {
     <div className="section-head-row">
       <div><div className="section-title">{title}</div>{subtitle && <div className="section-subtitle">{subtitle}</div>}</div>
       {action}
+    </div>
+  );
+}
+
+function monthKeyFromISO(isoDate = todayISO()) {
+  const d = parseISODateLocal(isoDate || todayISO());
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}`;
+}
+
+function addMonthsToKey(monthKey, amount) {
+  const [year, month] = String(monthKey || monthKeyFromISO()).split('-').map(Number);
+  const d = new Date(year || new Date().getFullYear(), (month || 1) - 1 + amount, 1);
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}`;
+}
+
+function monthLabel(monthKey, locale = 'PT-BR') {
+  const [year, month] = String(monthKey || monthKeyFromISO()).split('-').map(Number);
+  return new Intl.DateTimeFormat(locale, { month: 'long', year: 'numeric' }).format(new Date(year, (month || 1) - 1, 1));
+}
+
+function getMonthGridDates(monthKey) {
+  const [year, month] = String(monthKey || monthKeyFromISO()).split('-').map(Number);
+  const first = new Date(year || new Date().getFullYear(), (month || 1) - 1, 1);
+  const start = new Date(first);
+  start.setDate(1 - first.getDay());
+  return Array.from({ length: 42 }, (_, idx) => {
+    const d = new Date(start);
+    d.setDate(start.getDate() + idx);
+    return toLocalISODate(d);
+  });
+}
+
+function isSameMonthKey(isoDate, monthKey) {
+  return monthKeyFromISO(isoDate) === monthKey;
+}
+
+function DateSelector({ value, onChange, locale = 'PT-BR', discipline = null, className = '' }) {
+  const rootRef = useRef(null);
+  const safeValue = value || todayISO();
+  const isToday = safeValue === todayISO();
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [visibleMonth, setVisibleMonth] = useState(monthKeyFromISO(safeValue));
+
+  useEffect(() => {
+    setVisibleMonth(monthKeyFromISO(safeValue));
+  }, [safeValue]);
+
+  useEffect(() => {
+    if (!pickerOpen) return undefined;
+    const closeOnOutsideClick = (event) => {
+      if (rootRef.current && !rootRef.current.contains(event.target)) setPickerOpen(false);
+    };
+    const closeOnEscape = (event) => {
+      if (event.key === 'Escape') setPickerOpen(false);
+    };
+    document.addEventListener('mousedown', closeOnOutsideClick);
+    document.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.removeEventListener('mousedown', closeOnOutsideClick);
+      document.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [pickerOpen]);
+
+  function commit(nextDate, keepOpen = false) {
+    const normalized = normalizeISODateInput(nextDate || todayISO());
+    onChange(normalized);
+    setVisibleMonth(monthKeyFromISO(normalized));
+    if (!keepOpen) setPickerOpen(false);
+  }
+
+  const title = isToday ? (locale === 'EN-US' ? 'Today' : 'Hoje') : formatFullDate(safeValue, locale);
+  const subtitle = [safeValue, discipline !== null && discipline !== undefined ? `${discipline}%` : null].filter(Boolean).join(' · ');
+  const monthDates = getMonthGridDates(visibleMonth);
+
+  return (
+    <div className={cls('date-selector', className, pickerOpen && 'open')} ref={rootRef}>
+      <button type="button" className="date-nav-btn" onClick={() => commit(offsetDate(safeValue, -1))} aria-label={locale === 'EN-US' ? 'Previous day' : 'Dia anterior'}>‹</button>
+      <button type="button" className="date-display-btn" onClick={() => setPickerOpen((prev) => !prev)} aria-expanded={pickerOpen}>
+        <span className="date-display-icon"><CalendarDays size={18} /></span>
+        <span className="date-display-copy">
+          <span>{locale === 'EN-US' ? 'Selected date' : 'Data selecionada'}</span>
+          <strong>{title}</strong>
+          <small>{subtitle}</small>
+        </span>
+      </button>
+      <button type="button" className="date-nav-btn" onClick={() => commit(offsetDate(safeValue, 1))} aria-label={locale === 'EN-US' ? 'Next day' : 'Próximo dia'}>›</button>
+
+      {pickerOpen ? (
+        <div className="custom-date-popover">
+          <div className="custom-date-head">
+            <button type="button" className="custom-date-month-btn" onClick={() => setVisibleMonth((month) => addMonthsToKey(month, -1))} aria-label={locale === 'EN-US' ? 'Previous month' : 'Mês anterior'}>‹</button>
+            <div className="custom-date-month-title">
+              <strong>{monthLabel(visibleMonth, locale)}</strong>
+              <span>{locale === 'EN-US' ? 'Pick the day below' : 'Escolha o dia abaixo'}</span>
+            </div>
+            <button type="button" className="custom-date-month-btn" onClick={() => setVisibleMonth((month) => addMonthsToKey(month, 1))} aria-label={locale === 'EN-US' ? 'Next month' : 'Próximo mês'}>›</button>
+          </div>
+
+          <div className="custom-date-weekdays">
+            {(WEEKDAY_LABELS[locale] || WEEKDAY_LABELS['PT-BR']).map((day) => <span key={day}>{day}</span>)}
+          </div>
+
+          <div className="custom-date-grid">
+            {monthDates.map((date) => {
+              const dayNumber = parseISODateLocal(date).getDate();
+              const active = date === safeValue;
+              const current = date === todayISO();
+              const outside = !isSameMonthKey(date, visibleMonth);
+              return (
+                <button
+                  key={date}
+                  type="button"
+                  className={cls('custom-date-day', active && 'active', current && 'today', outside && 'outside')}
+                  onClick={() => commit(date)}
+                >
+                  <span>{dayNumber}</span>
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="custom-date-actions">
+            <button type="button" className="custom-date-link" onClick={() => commit(todayISO(), true)}>{locale === 'EN-US' ? 'Today' : 'Hoje'}</button>
+            <button type="button" className="custom-date-close" onClick={() => setPickerOpen(false)}>{locale === 'EN-US' ? 'Close' : 'Fechar'}</button>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function DateStrip({ dates, value, onChange, locale = 'PT-BR', getMetric = null }) {
+  return (
+    <div className="date-strip">
+      {dates.map((date) => {
+        const isActive = date === value;
+        const isToday = date === todayISO();
+        const metric = getMetric ? getMetric(date) : null;
+        return (
+          <button
+            key={date}
+            type="button"
+            className={cls('date-chip', isActive && 'active', isToday && 'today')}
+            onClick={() => onChange(date)}
+          >
+            <span>{weekdayLabel(getWeekdayFromISODate(date), locale)}</span>
+            <strong>{pad2(parseISODateLocal(date).getDate())}</strong>
+            <small>{isToday ? (locale === 'EN-US' ? 'Today' : 'Hoje') : formatShort(date, locale)}</small>
+            {metric ? <em>{metric}</em> : null}
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -2264,6 +3313,130 @@ function ModalShell({ open, onClose, children, cardClassName = '', allowBackdrop
         {children}
       </div>
     </div>
+  );
+}
+
+
+function ProfileAvatar({ src, alt = '', crop = DEFAULT_PROFILE_CROP, className = '' }) {
+  return (
+    <div className={cls('profile-avatar-shell', className, !src && 'profile-avatar-empty')}>
+      {src ? (
+        <div className="profile-avatar-crop-layer" style={profileCropCss(crop)}>
+          <img src={src} alt={alt} className="profile-avatar-img" draggable={false} />
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function ProfileCropModal({ open, onClose, imageSrc, crop, onCropChange, onReset, onSave, locale = 'PT-BR' }) {
+  const copy = getCopy(locale);
+  const draft = normalizeProfileCrop(crop);
+  const frameRef = useRef(null);
+  const dragRef = useRef(null);
+  const [dragging, setDragging] = useState(false);
+
+  const updateCrop = (key, value) => {
+    onCropChange?.(normalizeProfileCrop({ ...draft, [key]: Number(value) }));
+  };
+
+  const nudgeCrop = (key, amount) => {
+    onCropChange?.(normalizeProfileCrop({ ...draft, [key]: Number(draft[key] || 0) + amount }));
+  };
+
+  const startDrag = (event) => {
+    if (!frameRef.current) return;
+    event.preventDefault();
+    const rect = frameRef.current.getBoundingClientRect();
+    dragRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      baseX: draft.x,
+      baseY: draft.y,
+      size: Math.max(1, Math.min(rect.width, rect.height)),
+    };
+    frameRef.current.setPointerCapture?.(event.pointerId);
+    setDragging(true);
+  };
+
+  const moveDrag = (event) => {
+    const drag = dragRef.current;
+    if (!drag) return;
+    const deltaX = ((event.clientX - drag.startX) / drag.size) * 100;
+    const deltaY = ((event.clientY - drag.startY) / drag.size) * 100;
+    onCropChange?.(normalizeProfileCrop({ ...draft, x: drag.baseX + deltaX, y: drag.baseY + deltaY }));
+  };
+
+  const stopDrag = (event) => {
+    if (dragRef.current && frameRef.current) {
+      frameRef.current.releasePointerCapture?.(dragRef.current.pointerId || event.pointerId);
+    }
+    dragRef.current = null;
+    setDragging(false);
+  };
+
+  return (
+    <ModalShell open={open && !!imageSrc} onClose={onClose} cardClassName="profile-crop-modal" allowBackdropClose>
+      <div className="modal-head">
+        <div>
+          <div className="section-title">{copy.profileCropTitle}</div>
+          <div className="section-subtitle">{copy.profileCropSub}</div>
+        </div>
+        <button className="icon-btn" onClick={onClose} aria-label={copy.close}>×</button>
+      </div>
+
+      <div className="profile-crop-stage">
+        <img src={imageSrc} alt="" className="profile-crop-backdrop" />
+        <div
+          ref={frameRef}
+          className={cls('profile-crop-frame', dragging && 'is-dragging')}
+          onPointerDown={startDrag}
+          onPointerMove={moveDrag}
+          onPointerUp={stopDrag}
+          onPointerCancel={stopDrag}
+        >
+          <div className="profile-avatar-crop-layer profile-crop-live-layer" style={profileCropCss(draft)}>
+            <img src={imageSrc} alt="" className="profile-crop-image" draggable={false} />
+          </div>
+          <div className="profile-crop-circle" />
+        </div>
+      </div>
+
+      <div className="profile-crop-controls">
+        <label className="crop-slider-row">
+          <span>{copy.profileCropZoom}</span>
+          <div className="crop-range-line crop-range-line-with-steps">
+            <button type="button" className="crop-step-btn" onClick={() => nudgeCrop('zoom', -0.25)} aria-label={copy.profileCropZoomOut}>−</button>
+            <input type="range" min="1" max="12" step="0.01" value={draft.zoom} onChange={(e) => updateCrop('zoom', e.target.value)} />
+            <button type="button" className="crop-step-btn" onClick={() => nudgeCrop('zoom', 0.25)} aria-label={copy.profileCropZoomIn}>+</button>
+            <strong className="crop-value">{draft.zoom.toFixed(1)}x</strong>
+          </div>
+        </label>
+        <label className="crop-slider-row">
+          <span>{copy.profileCropHorizontal}</span>
+          <div className="crop-range-line">
+            <input type="range" min="-120" max="120" step="1" value={draft.x} onChange={(e) => updateCrop('x', e.target.value)} />
+            <strong className="crop-value">{Math.round(draft.x)}%</strong>
+          </div>
+        </label>
+        <label className="crop-slider-row">
+          <span>{copy.profileCropVertical}</span>
+          <div className="crop-range-line">
+            <input type="range" min="-120" max="120" step="1" value={draft.y} onChange={(e) => updateCrop('y', e.target.value)} />
+            <strong className="crop-value">{Math.round(draft.y)}%</strong>
+          </div>
+        </label>
+      </div>
+
+      <div className="modal-actions crop-modal-actions">
+        <button className="ghost-btn crop-secondary-action" onClick={onReset}>{copy.resetCrop}</button>
+        <div className="crop-action-right">
+          <button className="ghost-btn crop-secondary-action" onClick={onClose}>{copy.cancel}</button>
+          <button className="primary-btn crop-save-action" onClick={onSave}>{copy.saveCrop}</button>
+        </div>
+      </div>
+    </ModalShell>
   );
 }
 
