@@ -5,7 +5,7 @@ import {
   Plus, CheckCircle2, Circle, Search, Flame, Sparkles, Trophy, Brain,
   Download, Upload, Trash2, Pencil, ChevronUp, ChevronDown,
   TrendingUp, TrendingDown, Clock3, Focus, Dumbbell, MoreHorizontal,
-  BookOpen, Briefcase, HeartPulse, BedDouble, Droplets, GripVertical,
+  BookOpen, Briefcase, HeartPulse, BedDouble, Droplets, GripVertical, BookX, RotateCcw,
 } from 'lucide-react';
 import {
   ResponsiveContainer, AreaChart, Area, CartesianGrid, XAxis, YAxis,
@@ -162,6 +162,41 @@ const DEFAULT_DASHBOARD_QUOTES_BY_LOCALE = {
 };
 
 const DEFAULT_DASHBOARD_QUOTE = DEFAULT_DASHBOARD_QUOTES_BY_LOCALE['PT-BR'];
+
+const ERROR_TYPES_PT = [
+  'Conteúdo',
+  'Interpretação',
+  'Conta',
+  'Fórmula',
+  'Pressa',
+  'Chute',
+  'Confusão de conceito',
+];
+
+const ERROR_TYPES_EN = [
+  'Content gap',
+  'Misinterpretation',
+  'Calculation',
+  'Formula',
+  'Rushed',
+  'Guessing',
+  'Concept confusion',
+];
+
+const ERROR_STATUS_LABELS = {
+  'PT-BR': {
+    pending: 'Pendente',
+    correct_after_review: 'Acertei depois',
+    wrong_again: 'Errei de novo',
+    mastered: 'Dominei',
+  },
+  'EN-US': {
+    pending: 'Pending',
+    correct_after_review: 'Correct after review',
+    wrong_again: 'Wrong again',
+    mastered: 'Mastered',
+  },
+};
 
 function getDefaultDisciplineLabels(locale = 'PT-BR') {
   return DEFAULT_DISCIPLINE_LABELS_BY_LOCALE[locale] || DEFAULT_DISCIPLINE_LABELS_BY_LOCALE['PT-BR'];
@@ -338,6 +373,7 @@ function sampleState() {
   }));
   return {
     tasks, habits, events, history,
+    errors: [],
     reflections: { [date]: { note: '', whatWentWell: '', pending: '', improveTomorrow: '' } },
     settings: {
       userName: 'Christian', locale: 'PT-BR', dailyGoal: 80, weeklyGoal: 85,
@@ -370,6 +406,7 @@ function emptyState() {
     habits: [],
     events: [],
     history: [],
+    errors: [],
     reflections: {},
     settings: {
       ...base.settings,
@@ -455,6 +492,7 @@ function buildPersistedState(base, parsed) {
     habits: Array.isArray(parsed.habits) ? parsed.habits : base.habits,
     events: Array.isArray(parsed.events) ? parsed.events.map(normalizeEventRecord).filter(Boolean) : base.events,
     history: Array.isArray(parsed.history) ? parsed.history : base.history,
+    errors: Array.isArray(parsed.errors) ? parsed.errors.map(normalizeErrorRecord).filter(Boolean) : [],
   };
 }
 
@@ -589,8 +627,51 @@ const UI_COPY = {
     allTasks: 'Todas as tarefas',
     moveUp: 'Subir hábito',
     moveDown: 'Descer hábito',
-    nav: { dashboard: 'Dashboard', routine: 'Rotina do Dia', events: 'Eventos', habits: 'Hábitos', history: 'Histórico', stats: 'Estatísticas', pomodoro: 'Pomodoro', settings: 'Configurações' },
-    mobileNav: { dashboard: 'Início', routine: 'Rotina', events: 'Eventos', habits: 'Hábitos', stats: 'Estat.', pomodoro: 'Pomodoro', settings: 'Ajustes', more: 'Mais' },
+    nav: { dashboard: 'Dashboard', routine: 'Rotina do Dia', events: 'Eventos', habits: 'Hábitos', errors: 'Caderno de Erros', history: 'Histórico', stats: 'Estatísticas', pomodoro: 'Pomodoro', settings: 'Configurações' },
+    mobileNav: { dashboard: 'Início', routine: 'Rotina', events: 'Eventos', habits: 'Hábitos', errors: 'Erros', stats: 'Estat.', pomodoro: 'Pomodoro', settings: 'Ajustes', more: 'Mais' },
+    errorsNotebook: 'Caderno de Erros',
+    mistakeNotebook: 'Caderno de Erros',
+    mistakeNotebookSub: 'Transforme cada erro em revisão objetiva.',
+    addMistake: 'Adicionar erro',
+    mistakeDate: 'Data do erro',
+    subject: 'Matéria',
+    topic: 'Assunto',
+    questionRef: 'Questão / referência',
+    errorType: 'Tipo de erro',
+    correctionOneSentence: 'Correção em 1 frase',
+    redoDate: 'Refazer em',
+    notes: 'Observação',
+    dueToday: 'Para revisar hoje',
+    allMistakes: 'Todos',
+    mistakePatterns: 'Padrões de erro',
+    noMistakes: 'Você ainda não registrou erros. Comece pelas próximas questões erradas.',
+    noMistakesFound: 'Nenhum erro encontrado com esses filtros.',
+    correctAfterReview: 'Acertei depois',
+    wrongAgain: 'Errei de novo',
+    mastered: 'Dominei',
+    openMistakeNotebook: 'Abrir Caderno de Erros',
+    totalMistakes: 'Erros registrados',
+    pendingMistakes: 'Pendentes',
+    mistakeReviews: 'Revisões de erros',
+    editMistake: 'Editar erro',
+    saveMistake: 'Salvar erro',
+    confirmDeleteMistake: 'Excluir este erro?',
+    mistakeRequiredToast: 'Preencha matéria, assunto, tipo de erro e correção.',
+    mistakeSavedToast: 'Erro registrado para revisão.',
+    mistakeReviewedToast: 'Boa. Erro revisado.',
+    mistakeRescheduledToast: 'Revisão remarcada para 7 dias.',
+    mistakeMasteredToast: 'Erro marcado como dominado.',
+    mistakeUpdatedToast: 'Erro atualizado.',
+    mistakeDeletedToast: 'Erro excluído.',
+    searchMistakes: 'Buscar por matéria, assunto, questão ou correção',
+    filterSubject: 'Filtrar matéria',
+    filterType: 'Filtrar tipo',
+    filterStatus: 'Filtrar status',
+    allSubjects: 'Todas as matérias',
+    allTypes: 'Todos os tipos',
+    allStatuses: 'Todos os status',
+    recurringTopics: 'Assuntos recorrentes',
+    noPatternData: 'Sem dados suficientes ainda.',
     streak: 'sequência',
     today: 'Hoje',
     goalPerDay: (count) => `meta ${count}/dia`,
@@ -686,8 +767,51 @@ const UI_COPY = {
     allTasks: 'All tasks',
     moveUp: 'Move habit up',
     moveDown: 'Move habit down',
-    nav: { dashboard: 'Dashboard', routine: 'Daily routine', events: 'Events', habits: 'Habits', history: 'History', stats: 'Statistics', pomodoro: 'Pomodoro', settings: 'Settings' },
-    mobileNav: { dashboard: 'Home', routine: 'Routine', events: 'Events', habits: 'Habits', stats: 'Stats', pomodoro: 'Pomodoro', settings: 'Settings', more: 'More' },
+    nav: { dashboard: 'Dashboard', routine: 'Daily routine', events: 'Events', habits: 'Habits', errors: 'Mistake Notebook', history: 'History', stats: 'Statistics', pomodoro: 'Pomodoro', settings: 'Settings' },
+    mobileNav: { dashboard: 'Home', routine: 'Routine', events: 'Events', habits: 'Habits', errors: 'Mistakes', stats: 'Stats', pomodoro: 'Pomodoro', settings: 'Settings', more: 'More' },
+    errorsNotebook: 'Mistake Notebook',
+    mistakeNotebook: 'Mistake Notebook',
+    mistakeNotebookSub: 'Turn every mistake into targeted review.',
+    addMistake: 'Add mistake',
+    mistakeDate: 'Mistake date',
+    subject: 'Subject',
+    topic: 'Topic',
+    questionRef: 'Question / reference',
+    errorType: 'Mistake type',
+    correctionOneSentence: 'Correction in 1 sentence',
+    redoDate: 'Redo on',
+    notes: 'Notes',
+    dueToday: 'Due today',
+    allMistakes: 'All',
+    mistakePatterns: 'Mistake patterns',
+    noMistakes: 'You have not logged any mistakes yet. Start with your next wrong question.',
+    noMistakesFound: 'No mistakes found with those filters.',
+    correctAfterReview: 'Correct after review',
+    wrongAgain: 'Wrong again',
+    mastered: 'Mastered',
+    openMistakeNotebook: 'Open Mistake Notebook',
+    totalMistakes: 'Mistakes logged',
+    pendingMistakes: 'Pending',
+    mistakeReviews: 'Mistake reviews',
+    editMistake: 'Edit mistake',
+    saveMistake: 'Save mistake',
+    confirmDeleteMistake: 'Delete this mistake?',
+    mistakeRequiredToast: 'Fill in subject, topic, mistake type and correction.',
+    mistakeSavedToast: 'Mistake logged for review.',
+    mistakeReviewedToast: 'Good. Mistake reviewed.',
+    mistakeRescheduledToast: 'Review rescheduled for 7 days.',
+    mistakeMasteredToast: 'Mistake marked as mastered.',
+    mistakeUpdatedToast: 'Mistake updated.',
+    mistakeDeletedToast: 'Mistake deleted.',
+    searchMistakes: 'Search subject, topic, question or correction',
+    filterSubject: 'Filter subject',
+    filterType: 'Filter type',
+    filterStatus: 'Filter status',
+    allSubjects: 'All subjects',
+    allTypes: 'All types',
+    allStatuses: 'All statuses',
+    recurringTopics: 'Recurring topics',
+    noPatternData: 'Not enough data yet.',
     streak: 'streak',
     today: 'Today',
     goalPerDay: (count) => `goal ${count}/day`,
@@ -781,6 +905,78 @@ function priorityLabel(priority, locale = 'PT-BR') {
 function statusLabel(status, locale = 'PT-BR') {
   const copy = getCopy(locale);
   return { done: copy.taskDone, pending: copy.taskPending }[status] || status;
+}
+
+function getDefaultRedoDate(date) {
+  return offsetDate(date || todayISO(), 3);
+}
+
+function getErrorTypes(locale = 'PT-BR') {
+  return locale === 'EN-US' ? ERROR_TYPES_EN : ERROR_TYPES_PT;
+}
+
+function getErrorStatusLabel(status, locale = 'PT-BR') {
+  const labels = ERROR_STATUS_LABELS[locale] || ERROR_STATUS_LABELS['PT-BR'];
+  return labels[status] || labels.pending;
+}
+
+function normalizeErrorRecord(error) {
+  if (!error || typeof error !== 'object') return null;
+  const date = normalizeISODateInput(error.date, todayISO());
+  const status = ['pending', 'correct_after_review', 'wrong_again', 'mastered'].includes(error.status) ? error.status : 'pending';
+  const createdAt = error.createdAt || new Date().toISOString();
+  return {
+    id: error.id || uid(),
+    date,
+    subject: String(error.subject || '').trim(),
+    topic: String(error.topic || '').trim(),
+    questionRef: String(error.questionRef || '').trim(),
+    errorType: String(error.errorType || '').trim(),
+    correction: String(error.correction || '').trim(),
+    redoDate: normalizeISODateInput(error.redoDate, getDefaultRedoDate(date)),
+    status,
+    notes: String(error.notes || '').trim(),
+    createdAt,
+    updatedAt: error.updatedAt || createdAt,
+    reviewCount: Math.max(0, Number(error.reviewCount || 0)),
+  };
+}
+
+function getErrorsDueToday(errors = []) {
+  const today = todayISO();
+  return (errors || [])
+    .map(normalizeErrorRecord)
+    .filter(Boolean)
+    .filter((error) => ['pending', 'wrong_again'].includes(error.status) && error.redoDate <= today);
+}
+
+function countBy(items, keyFn) {
+  return items.reduce((acc, item) => {
+    const key = String(keyFn(item) || '').trim();
+    if (!key) return acc;
+    acc[key] = (acc[key] || 0) + 1;
+    return acc;
+  }, {});
+}
+
+function countMapToSeries(map) {
+  return Object.entries(map)
+    .map(([name, total]) => ({ name, total }))
+    .sort((a, b) => b.total - a.total || a.name.localeCompare(b.name));
+}
+
+function getErrorStats(errors = []) {
+  const normalized = (errors || []).map(normalizeErrorRecord).filter(Boolean);
+  return {
+    total: normalized.length,
+    pending: normalized.filter((error) => error.status === 'pending').length,
+    dueToday: getErrorsDueToday(normalized).length,
+    mastered: normalized.filter((error) => error.status === 'mastered').length,
+    wrongAgain: normalized.filter((error) => error.status === 'wrong_again').length,
+    bySubject: countMapToSeries(countBy(normalized, (error) => error.subject)),
+    byErrorType: countMapToSeries(countBy(normalized, (error) => error.errorType)),
+    byTopic: countMapToSeries(countBy(normalized, (error) => error.topic)),
+  };
 }
 
 function alphaColor(hex, alpha = '22') {
@@ -1480,6 +1676,7 @@ const habitConsistencyData = state.habits
 const chartGrid = isLight ? 'rgba(15,23,42,0.08)' : 'rgba(255,255,255,0.08)';
 const chartAxis = isLight ? 'rgba(15,23,42,0.48)' : 'rgba(255,255,255,0.45)';
 const mutedBarColor = isLight ? '#cbd5e1' : 'rgba(255,255,255,0.22)';
+const errorStats = getErrorStats(state.errors || []);
 
   if (!storageReady) {
     return (
@@ -2095,6 +2292,18 @@ if (page === 'dashboard') {
               </div>
             )}
           </section>
+
+          <section className="glass section-card dashboard-mistake-card">
+            <SectionHeader
+              title={copy.mistakeReviews}
+              subtitle={locale === 'EN-US' ? `${errorStats.dueToday} due today, ${errorStats.pending} pending.` : `${errorStats.dueToday} para revisar hoje, ${errorStats.pending} pendente(s).`}
+              action={<button className="ghost-btn" onClick={() => setPage('errors')}>{copy.openMistakeNotebook}</button>}
+            />
+            <div className="weekly-summary-grid">
+              <MiniStat label={copy.dueToday} value={errorStats.dueToday} />
+              <MiniStat label={copy.pendingMistakes} value={errorStats.pending} />
+            </div>
+          </section>
         </div>
       </div>
 
@@ -2703,6 +2912,18 @@ if (page === 'stats') {
   );
 }
 
+    if (page === 'errors') {
+      return (
+        <ErrorNotebookPage
+          state={state}
+          updateState={updateState}
+          locale={locale}
+          toast={toast}
+          isLight={isLight}
+        />
+      );
+    }
+
     if (page === 'pomodoro') {
       return (
         <div className="stack large-gap">
@@ -2896,6 +3117,7 @@ if (page === 'stats') {
     ['habits', <Target size={16} />, copy.mobileNav.habits],
   ];
   const mobileMoreNavItems = [
+    ['errors', <BookX size={16} />, copy.mobileNav.errors],
     ['history', <CalendarDays size={16} />, copy.nav.history],
     ['stats', <BarChart3 size={16} />, copy.mobileNav.stats],
     ['pomodoro', <Focus size={16} />, copy.mobileNav.pomodoro],
@@ -2941,6 +3163,7 @@ if (page === 'stats') {
               ['routine', copy.nav.routine, <ListTodo size={16} />],
               ['events', copy.nav.events, <Sparkles size={16} />],
               ['habits', copy.nav.habits, <Target size={16} />],
+              ['errors', copy.nav.errors, <BookX size={16} />],
               ['history', copy.nav.history, <CalendarDays size={16} />],
               ['stats', copy.nav.stats, <BarChart3 size={16} />],
               ['pomodoro', copy.nav.pomodoro, <Focus size={16} />],
@@ -3481,6 +3704,316 @@ function ProfileCropModal({ open, onClose, imageSrc, crop, onCropChange, onReset
           <button className="ghost-btn crop-secondary-action" onClick={onClose}>{copy.cancel}</button>
           <button className="primary-btn crop-save-action" onClick={onSave}>{copy.saveCrop}</button>
         </div>
+      </div>
+    </ModalShell>
+  );
+}
+
+function ErrorNotebookPage({ state, updateState, locale = 'PT-BR', toast, isLight = false }) {
+  const copy = getCopy(locale);
+  const blankDraft = () => ({
+    date: todayISO(),
+    subject: '',
+    topic: '',
+    questionRef: '',
+    errorType: getErrorTypes(locale)[0],
+    correction: '',
+    redoDate: getDefaultRedoDate(todayISO()),
+    status: 'pending',
+    notes: '',
+  });
+  const [draft, setDraft] = useState(blankDraft);
+  const [editingError, setEditingError] = useState(null);
+  const [query, setQuery] = useState('');
+  const [subjectFilter, setSubjectFilter] = useState('');
+  const [typeFilter, setTypeFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
+  const [viewMode, setViewMode] = useState('all');
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const errors = useMemo(() => (state.errors || []).map(normalizeErrorRecord).filter(Boolean), [state.errors]);
+  const stats = useMemo(() => getErrorStats(errors), [errors]);
+  const errorTypes = getErrorTypes(locale);
+  const subjects = [...new Set(errors.map((error) => error.subject).filter(Boolean))].sort((a, b) => a.localeCompare(b, locale));
+
+  function updateDraft(key, value) {
+    setDraft((prev) => ({
+      ...prev,
+      [key]: value,
+      ...(key === 'date' ? { redoDate: getDefaultRedoDate(value) } : {}),
+    }));
+  }
+
+  function addError() {
+    const normalized = normalizeErrorRecord({ ...draft, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), reviewCount: 0 });
+    if (!normalized.subject || !normalized.topic || !normalized.errorType || !normalized.correction) {
+      toast.push(copy.mistakeRequiredToast);
+      return;
+    }
+    updateState((prev) => ({ ...prev, errors: [...(prev.errors || []), normalized] }));
+    setDraft(blankDraft());
+    toast.push(copy.mistakeSavedToast);
+  }
+
+  function patchError(id, patch, message) {
+    updateState((prev) => ({
+      ...prev,
+      errors: (prev.errors || []).map((error) => {
+        if (error.id !== id) return error;
+        return normalizeErrorRecord({ ...error, ...patch, updatedAt: new Date().toISOString() });
+      }).filter(Boolean),
+    }));
+    if (message) toast.push(message);
+  }
+
+  function reviewError(id, status) {
+    const current = errors.find((error) => error.id === id);
+    if (!current) return;
+    const patch = {
+      status,
+      reviewCount: Number(current.reviewCount || 0) + (status === 'mastered' ? 0 : 1),
+      ...(status === 'wrong_again' ? { redoDate: offsetDate(todayISO(), 7) } : {}),
+    };
+    const message = status === 'correct_after_review'
+      ? copy.mistakeReviewedToast
+      : status === 'wrong_again'
+        ? copy.mistakeRescheduledToast
+        : copy.mistakeMasteredToast;
+    patchError(id, patch, message);
+  }
+
+  function confirmDeleteError() {
+    if (!deleteTarget) return;
+    const id = deleteTarget.id;
+    updateState((prev) => ({ ...prev, errors: (prev.errors || []).filter((error) => error.id !== id) }));
+    setDeleteTarget(null);
+    toast.push(copy.mistakeDeletedToast);
+  }
+
+  function saveEditedError(nextError) {
+    const normalized = normalizeErrorRecord({ ...nextError, updatedAt: new Date().toISOString() });
+    if (!normalized.subject || !normalized.topic || !normalized.errorType || !normalized.correction) {
+      toast.push(copy.mistakeRequiredToast);
+      return;
+    }
+    updateState((prev) => ({ ...prev, errors: (prev.errors || []).map((error) => (error.id === normalized.id ? normalized : error)) }));
+    setEditingError(null);
+    toast.push(copy.mistakeUpdatedToast);
+  }
+
+  const filteredErrors = errors
+    .filter((error) => {
+      const term = query.trim().toLowerCase();
+      const haystack = [error.subject, error.topic, error.questionRef, error.correction].join(' ').toLowerCase();
+      const dueMatch = viewMode !== 'due' || getErrorsDueToday([error]).length > 0;
+      return dueMatch
+        && (!term || haystack.includes(term))
+        && (!subjectFilter || error.subject === subjectFilter)
+        && (!typeFilter || error.errorType === typeFilter)
+        && (!statusFilter || error.status === statusFilter);
+    })
+    .sort((a, b) => {
+      const dueA = getErrorsDueToday([a]).length ? 0 : 1;
+      const dueB = getErrorsDueToday([b]).length ? 0 : 1;
+      if (dueA !== dueB) return dueA - dueB;
+      const redo = a.redoDate.localeCompare(b.redoDate);
+      if (redo !== 0) return redo;
+      return b.date.localeCompare(a.date);
+    });
+
+  return (
+    <div className="error-notebook-page stack large-gap">
+      <section className="glass section-card">
+        <SectionHeader title={copy.mistakeNotebook} subtitle={copy.mistakeNotebookSub} />
+        <div className="error-metric-grid">
+          <Metric icon={<BookX size={16} />} label={copy.totalMistakes} value={stats.total} />
+          <Metric icon={<Clock3 size={16} />} label={copy.dueToday} value={stats.dueToday} />
+          <Metric icon={<RotateCcw size={16} />} label={copy.wrongAgain} value={stats.wrongAgain} />
+          <Metric icon={<CheckCircle2 size={16} />} label={copy.mastered} value={stats.mastered} />
+        </div>
+      </section>
+
+      <section className="glass section-card">
+        <SectionHeader title={copy.addMistake} subtitle={locale === 'EN-US' ? 'Log the minimum useful context and move on.' : 'Registre o mínimo útil e siga para a próxima questão.'} />
+        <div className="error-form-grid">
+          <Field label={copy.mistakeDate}><input type="date" value={draft.date} onChange={(e) => updateDraft('date', e.target.value)} /></Field>
+          <Field label={copy.subject}><input value={draft.subject} onChange={(e) => updateDraft('subject', e.target.value)} placeholder={locale === 'EN-US' ? 'Chemistry' : 'Química'} /></Field>
+          <Field label={copy.topic}><input value={draft.topic} onChange={(e) => updateDraft('topic', e.target.value)} placeholder={locale === 'EN-US' ? 'Stoichiometry' : 'Mol'} /></Field>
+          <Field label={copy.questionRef}><input value={draft.questionRef} onChange={(e) => updateDraft('questionRef', e.target.value)} placeholder="ENEM 2020 Q97" /></Field>
+          <Field label={copy.errorType}>
+            <select value={draft.errorType} onChange={(e) => updateDraft('errorType', e.target.value)}>
+              {errorTypes.map((type) => <option key={type} value={type}>{type}</option>)}
+            </select>
+          </Field>
+          <Field label={copy.redoDate}><input type="date" value={draft.redoDate} onChange={(e) => updateDraft('redoDate', e.target.value)} /></Field>
+          <Field label={copy.correctionOneSentence}><input value={draft.correction} onChange={(e) => updateDraft('correction', e.target.value)} placeholder={locale === 'EN-US' ? 'The correct idea is...' : 'A ideia correta é...'} /></Field>
+          <Field label={copy.notes}><input value={draft.notes} onChange={(e) => updateDraft('notes', e.target.value)} /></Field>
+        </div>
+        <div className="task-actions-row end">
+          <button className="primary-btn" onClick={addError}><Plus size={16} /> {copy.addMistake}</button>
+        </div>
+      </section>
+
+      <div className="error-pattern-grid">
+        <section className="glass section-card">
+          <SectionHeader title={copy.errorsNotebook} subtitle={locale === 'EN-US' ? 'Review the cards that are actually due first.' : 'Revise primeiro o que realmente venceu.'} />
+          <div className="error-filter-row">
+            <div className="search-box"><Search size={16} /><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={copy.searchMistakes} /></div>
+            <select value={subjectFilter} onChange={(e) => setSubjectFilter(e.target.value)} aria-label={copy.filterSubject}>
+              <option value="">{copy.allSubjects}</option>
+              {subjects.map((subject) => <option key={subject} value={subject}>{subject}</option>)}
+            </select>
+            <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} aria-label={copy.filterType}>
+              <option value="">{copy.allTypes}</option>
+              {errorTypes.map((type) => <option key={type} value={type}>{type}</option>)}
+            </select>
+            <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} aria-label={copy.filterStatus}>
+              <option value="">{copy.allStatuses}</option>
+              {Object.keys(ERROR_STATUS_LABELS['PT-BR']).map((status) => <option key={status} value={status}>{getErrorStatusLabel(status, locale)}</option>)}
+            </select>
+          </div>
+          <div className="toolbar-row error-view-tabs">
+            <button className={cls('ghost-btn compact', viewMode === 'all' && 'active-filter')} onClick={() => setViewMode('all')}>{copy.allMistakes}</button>
+            <button className={cls('ghost-btn compact', viewMode === 'due' && 'active-filter')} onClick={() => setViewMode('due')}>{copy.dueToday}</button>
+          </div>
+          <div className="stack small-gap">
+            {!errors.length ? (
+              <div className="empty-state-card"><div className="row-title">{copy.noMistakes}</div></div>
+            ) : !filteredErrors.length ? (
+              <div className="empty-state-card"><div className="row-title">{copy.noMistakesFound}</div></div>
+            ) : filteredErrors.map((error) => (
+              <article key={error.id} className="error-card">
+                <div className="error-card-head">
+                  <div>
+                    <div className="row-title">{error.subject} • {error.topic}</div>
+                    <div className="row-sub">{error.questionRef || (locale === 'EN-US' ? 'No reference' : 'Sem referência')}</div>
+                  </div>
+                  <span className={cls('error-status-pill', error.status)}>{getErrorStatusLabel(error.status, locale)}</span>
+                </div>
+                <div className="error-card-body">
+                  <span><strong>{copy.errorType}:</strong> {error.errorType}</span>
+                  <span><strong>{copy.correctionOneSentence}:</strong> {error.correction}</span>
+                  <span><strong>{copy.mistakeDate}:</strong> {formatShort(error.date, locale)}</span>
+                  <span><strong>{copy.redoDate}:</strong> {formatShort(error.redoDate, locale)}</span>
+                  {error.notes ? <span><strong>{copy.notes}:</strong> {error.notes}</span> : null}
+                </div>
+                <div className="error-card-actions">
+                  <button className="ghost-btn compact" onClick={() => reviewError(error.id, 'correct_after_review')}>{copy.correctAfterReview}</button>
+                  <button className="ghost-btn compact" onClick={() => reviewError(error.id, 'wrong_again')}>{copy.wrongAgain}</button>
+                  <button className="ghost-btn compact" onClick={() => reviewError(error.id, 'mastered')}>{copy.mastered}</button>
+                  <button className="ghost-btn compact" onClick={() => setEditingError(error)}><Pencil size={14} /> {copy.edit}</button>
+                  <button className="danger-btn compact" onClick={() => setDeleteTarget(error)}><Trash2 size={14} /> {copy.delete}</button>
+                </div>
+              </article>
+            ))}
+          </div>
+        </section>
+
+        <section className="glass section-card">
+          <SectionHeader title={copy.mistakePatterns} subtitle={locale === 'EN-US' ? 'Spot what repeats before it becomes a habit.' : 'Veja o que se repete antes de virar padrão.'} />
+          <div className="error-pattern-stack">
+            <PatternBarList title={copy.subject} items={stats.bySubject.slice(0, 5)} color="primary" emptyText={copy.noPatternData} />
+            <PatternBarList title={copy.errorType} items={stats.byErrorType.slice(0, 5)} color="accent" emptyText={copy.noPatternData} />
+            <div className="error-topics-list">
+              <div className="row-title">{copy.recurringTopics}</div>
+              {stats.byTopic.length ? stats.byTopic.slice(0, 5).map((topic) => (
+                <div key={topic.name} className="simple-card">
+                  <div className="row-title">{topic.name}</div>
+                  <div className="row-sub">{topic.total} {locale === 'EN-US' ? 'mistake(s)' : 'erro(s)'}</div>
+                </div>
+              )) : <div className="row-sub">{copy.noPatternData}</div>}
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <ErrorEditModal
+        open={!!editingError}
+        error={editingError}
+        locale={locale}
+        onClose={() => setEditingError(null)}
+        onSave={saveEditedError}
+      />
+      <ResetConfirmModal
+        open={!!deleteTarget}
+        locale={locale}
+        title={copy.confirmDeleteMistake}
+        description={deleteTarget ? (locale === 'EN-US'
+          ? `${deleteTarget.subject} • ${deleteTarget.topic} will be removed from your notebook.`
+          : `${deleteTarget.subject} • ${deleteTarget.topic} será removido do caderno.`) : ''}
+        confirmLabel={copy.delete}
+        cancelLabel={copy.cancel}
+        onClose={() => setDeleteTarget(null)}
+        onConfirm={confirmDeleteError}
+      />
+    </div>
+  );
+}
+
+function PatternBarList({ title, items = [], color = 'primary', emptyText }) {
+  const max = Math.max(...items.map((item) => item.total), 1);
+  return (
+    <div className="error-pattern-panel">
+      <div className="row-title">{title}</div>
+      {items.length ? (
+        <div className="error-pattern-bars">
+          {items.map((item) => (
+            <div key={item.name} className="error-pattern-row">
+              <div className="error-pattern-label">
+                <span>{item.name}</span>
+                <strong>{item.total}</strong>
+              </div>
+              <div className="error-pattern-track">
+                <div
+                  className={cls('error-pattern-fill', color === 'accent' && 'accent')}
+                  style={{ width: `${Math.max(8, Math.round((item.total / max) * 100))}%` }}
+                />
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : <div className="row-sub">{emptyText}</div>}
+    </div>
+  );
+}
+
+function ErrorEditModal({ open, error, locale = 'PT-BR', onClose, onSave }) {
+  const copy = getCopy(locale);
+  const [draft, setDraft] = useState(null);
+  useEffect(() => setDraft(error ? normalizeErrorRecord(error) : null), [error]);
+  if (!open || !draft) return null;
+  const errorTypes = getErrorTypes(locale);
+
+  return (
+    <ModalShell open={open} onClose={onClose} allowBackdropClose={false}>
+      <div className="section-head-row">
+        <div>
+          <div className="section-title">{copy.editMistake}</div>
+          <div className="section-subtitle">{copy.mistakeNotebookSub}</div>
+        </div>
+        <button className="ghost-btn" onClick={onClose}>{copy.close}</button>
+      </div>
+      <div className="error-form-grid">
+        <Field label={copy.mistakeDate}><input type="date" value={draft.date} onChange={(e) => setDraft({ ...draft, date: e.target.value })} /></Field>
+        <Field label={copy.subject}><input value={draft.subject} onChange={(e) => setDraft({ ...draft, subject: e.target.value })} /></Field>
+        <Field label={copy.topic}><input value={draft.topic} onChange={(e) => setDraft({ ...draft, topic: e.target.value })} /></Field>
+        <Field label={copy.questionRef}><input value={draft.questionRef} onChange={(e) => setDraft({ ...draft, questionRef: e.target.value })} /></Field>
+        <Field label={copy.errorType}>
+          <select value={draft.errorType} onChange={(e) => setDraft({ ...draft, errorType: e.target.value })}>
+            {errorTypes.map((type) => <option key={type} value={type}>{type}</option>)}
+          </select>
+        </Field>
+        <Field label={copy.redoDate}><input type="date" value={draft.redoDate} onChange={(e) => setDraft({ ...draft, redoDate: e.target.value })} /></Field>
+        <Field label={copy.filterStatus}>
+          <select value={draft.status} onChange={(e) => setDraft({ ...draft, status: e.target.value })}>
+            {Object.keys(ERROR_STATUS_LABELS['PT-BR']).map((status) => <option key={status} value={status}>{getErrorStatusLabel(status, locale)}</option>)}
+          </select>
+        </Field>
+        <Field label={copy.correctionOneSentence}><input value={draft.correction} onChange={(e) => setDraft({ ...draft, correction: e.target.value })} /></Field>
+        <Field label={copy.notes}><textarea value={draft.notes} onChange={(e) => setDraft({ ...draft, notes: e.target.value })} /></Field>
+      </div>
+      <div className="task-actions-row end">
+        <button className="ghost-btn" onClick={onClose}>{copy.cancel}</button>
+        <button className="primary-btn" onClick={() => onSave(draft)}>{copy.saveMistake}</button>
       </div>
     </ModalShell>
   );
